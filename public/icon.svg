@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Fond arrondi bleu -->
+  <rect width="512" height="512" rx="90" fill="#1d4ed8"/>
+
+  <!-- Page gauche du livre -->
+  <path d="M82 148 C82 138 90 130 100 132 L244 152 L244 382 L100 362 C90 360 82 352 82 342 Z" fill="#eff6ff"/>
+  <!-- Lignes page gauche -->
+  <line x1="112" y1="195" x2="218" y2="202" stroke="#bfdbfe" stroke-width="10" stroke-linecap="round"/>
+  <line x1="112" y1="227" x2="218" y2="234" stroke="#bfdbfe" stroke-width="10" stroke-linecap="round"/>
+  <line x1="112" y1="259" x2="218" y2="266" stroke="#bfdbfe" stroke-width="10" stroke-linecap="round"/>
+  <line x1="112" y1="291" x2="218" y2="298" stroke="#bfdbfe" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- Page droite du livre -->
+  <path d="M430 148 C430 138 422 130 412 132 L268 152 L268 382 L412 362 C422 360 430 352 430 342 Z" fill="#dbeafe"/>
+
+  <!-- Symbole @ sur la page droite -->
+  <text x="349" y="302"
+        text-anchor="middle"
+        font-family="'Arial Black', Arial, sans-serif"
+        font-size="148"
+        font-weight="900"
+        fill="#1d4ed8">@</text>
+
+  <!-- Reliure (spine) -->
+  <rect x="244" y="140" width="24" height="248" rx="4" fill="#93c5fd"/>
+
+  <!-- Bas du livre (couverture) -->
+  <rect x="82" y="374" width="348" height="28" rx="6" fill="#1e3a8a"/>
+</svg>

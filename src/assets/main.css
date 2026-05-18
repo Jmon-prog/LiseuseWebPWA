@@ -1,0 +1,94 @@
+/* ── Thèmes ─────────────────────────────────────────────────────────────── */
+:root,
+[data-theme="light"] {
+    --color-bg: #f5f5f5;
+    --color-surface: #ffffff;
+    --color-surface-hover: #f0f0f0;
+    --color-text: #1a1a1a;
+    --color-text-muted: #666;
+    --color-border: #e0e0e0;
+    --color-accent: #2563eb;
+    --reader-bg: #ffffff;
+    --reader-text: #1a1a1a;
+}
+
+[data-theme="dark"] {
+    --color-bg: #121212;
+    --color-surface: #1e1e1e;
+    --color-surface-hover: #2a2a2a;
+    --color-text: #e8e8e8;
+    --color-text-muted: #999;
+    --color-border: #333;
+    --color-accent: #60a5fa;
+    --reader-bg: #121212;
+    --reader-text: #e8e8e8;
+}
+
+[data-theme="sepia"] {
+    --color-bg: #f4ede1;
+    --color-surface: #faf6f0;
+    --color-surface-hover: #ede5d9;
+    --color-text: #3b2f1e;
+    --color-text-muted: #7a6045;
+    --color-border: #d9cabb;
+    --color-accent: #8b5e3c;
+    --reader-bg: #faf6f0;
+    --reader-text: #3b2f1e;
+}
+
+/* ── Reset minimal ──────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body,
+#app {
+    height: 100%;
+    /* dvh = Dynamic Viewport Height, corrige le bug iOS avec la barre d'adresse */
+    min-height: 100dvh;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    /* Évite le surbrillance bleue au tap sur iOS/Android */
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Taille minimale des zones tactiles (WCAG / Apple HIG : 44×44px) */
+button,
+a,
+[role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* Empêche le double-tap zoom et les délais de 300ms */
+    touch-action: manipulation;
+    /* Pas de callout long-press iOS sur les boutons */
+    -webkit-touch-callout: none;
+}
+
+/* Sélection de texte désactivée dans l'UI (pas dans le contenu du lecteur) */
+button,
+nav,
+footer,
+header {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ── Contenu lecteur ────────────────────────────────────────────────────── */
+.reader__body p {
+    margin-bottom: 1em;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}

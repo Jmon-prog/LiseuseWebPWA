@@ -13,6 +13,11 @@ const DB_VERSION = 1
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
 
+// Permet à la page de déclencher la mise à jour sans fermer toutes les fenêtres
+self.addEventListener('message', (event) => {
+    if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+})
+
 // Cache des couvertures RoyalRoad
 registerRoute(
     ({ url }) =>

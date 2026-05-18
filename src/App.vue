@@ -1,6 +1,15 @@
 <template>
   <RouterView />
 
+  <!-- Bannière mise à jour PWA -->
+  <Transition name="dl-slide">
+    <div v-if="needRefresh && !dismissedUpdate" class="update-bar">
+      <span>🆕 Mise à jour disponible</span>
+      <button class="update-bar__btn" @click="updateServiceWorker(true)">Recharger</button>
+      <button class="update-bar__close" @click="dismissedUpdate = true">✕</button>
+    </div>
+  </Transition>
+
   <!-- Bandeau de téléchargement global -->
   <Transition name="dl-slide">
     <div v-if="library.downloadProgress" class="dl-bar">
@@ -23,9 +32,17 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useLibraryStore } from '@/stores/libraryStore'
+
+const { needRefresh, updateServiceWorker } = useRegisterSW({
+  onRegistered(r: ServiceWorkerRegistration | undefined) {
+    r && setInterval(() => r.update(), 60 * 60 * 1000) // Vérifie les mises à jour toutes les heures
+  },
+})
+const dismissedUpdate = ref(false)
 
 const settings = useSettingsStore()
 const library = useLibraryStore()
@@ -49,6 +66,38 @@ async function registerPeriodicSync() {
 </script>
 
 <style>
+.update-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px env(safe-area-inset-top);
+  background: var(--color-accent, #2563eb);
+  color: #fff;
+  font-size: 0.9rem;
+}
+.update-bar span { flex: 1 }
+.update-bar__btn {
+  background: #fff;
+  color: var(--color-accent, #2563eb);
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.update-bar__close {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.8;
+}
 .dl-bar {
   position: fixed;
   bottom: 0;

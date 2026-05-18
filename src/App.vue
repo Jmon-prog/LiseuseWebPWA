@@ -29,7 +29,23 @@ import { useLibraryStore } from '@/stores/libraryStore'
 
 const settings = useSettingsStore()
 const library = useLibraryStore()
-onMounted(() => settings.applyTheme())
+
+onMounted(async () => {
+  settings.applyTheme()
+  await registerPeriodicSync()
+})
+
+async function registerPeriodicSync() {
+  if (!('serviceWorker' in navigator) || !('periodicSync' in (await navigator.serviceWorker.ready))) return
+  try {
+    const reg = await navigator.serviceWorker.ready
+    const status = await navigator.permissions.query({ name: 'periodic-background-sync' as PermissionName })
+    if (status.state !== 'granted') return
+    await (reg as any).periodicSync.register('check-new-chapters', {
+      minInterval: 60 * 60 * 1000, // 1 heure
+    })
+  } catch { /* API non supportée sur ce navigateur */ }
+}
 </script>
 
 <style>

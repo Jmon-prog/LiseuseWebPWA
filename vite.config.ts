@@ -29,8 +29,8 @@ export default defineConfig({
         display: 'standalone',
         display_override: ['standalone', 'minimal-ui'],
         orientation: 'portrait',
-        scope: '/',
-        start_url: '/',
+        scope: '/LiseuseWebPWA/',
+        start_url: '/LiseuseWebPWA/',
         id: '/',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },

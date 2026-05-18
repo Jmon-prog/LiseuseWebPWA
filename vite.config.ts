@@ -5,6 +5,7 @@ import { fileURLToPath, URL } from 'node:url'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
 export default defineConfig({
+  base: '/LiseuseWebPWA/',
   server: {
     host: true,
   },

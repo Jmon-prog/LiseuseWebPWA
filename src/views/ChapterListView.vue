@@ -24,6 +24,15 @@
           <span v-else-if="allOffline">✓ Hors ligne</span>
           <span v-else>💾 Télécharger</span>
         </button>
+        <button
+          class="btn-mark-read"
+          :disabled="refreshing || downloading || unreadCount === 0"
+          @click="markAllRead"
+          title="Marquer tout comme lu"
+        >✓ Tout lu</button>
+        <button class="btn-sort" @click="sortDesc = !sortDesc" :title="sortDesc ? 'Plus récent en premier' : 'Plus ancien en premier'">
+          {{ sortDesc ? '↓ Récent' : '↑ Ancien' }}
+        </button>
       </div>
     </header>
 
@@ -38,7 +47,7 @@
 
     <ul v-else-if="chapters.length > 0" class="chapter-list__list">
       <li
-        v-for="ch in chapters"
+        v-for="ch in sortedChapters"
         :key="ch.id"
         class="chapter-item"
         :class="{ 'chapter-item--read': ch.isRead }"
@@ -80,6 +89,12 @@ const allOffline = computed(() =>
   chapters.value.length > 0 && chapters.value.every(c => !!c.content)
 )
 
+const sortDesc = ref(false)
+const sortedChapters = computed(() =>
+  [...chapters.value].sort((a, b) => sortDesc.value ? b.order - a.order : a.order - b.order)
+)
+const unreadCount = computed(() => chapters.value.filter(c => !c.isRead).length)
+
 onMounted(async () => {
   fiction.value = await db.fictions.get(props.fictionDbId) ?? null
   chapters.value = await library.getChapters(props.fictionDbId)
@@ -89,6 +104,13 @@ onMounted(async () => {
     await refresh()
   }
 })
+
+async function markAllRead() {
+  if (!fiction.value?.id) return
+  await library.markAllAsRead(fiction.value.id)
+  chapters.value = chapters.value.map(c => ({ ...c, isRead: true }))
+  fiction.value = { ...fiction.value, unreadCount: 0 }
+}
 
 async function startDownload() {
   if (!fiction.value) return
@@ -211,6 +233,29 @@ function formatDate(iso: string): string {
 .btn-download:disabled {
   opacity: 0.55;
   cursor: default;
+}
+.btn-mark-read {
+  font-size: 0.85rem;
+  padding: 7px 14px;
+  border: 1px solid var(--color-accent);
+  border-radius: 8px;
+  background: none;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.btn-mark-read:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn-sort {
+  font-size: 0.85rem;
+  padding: 7px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text);
+  white-space: nowrap;
 }
 .chapter-list__loading {
   text-align: center;

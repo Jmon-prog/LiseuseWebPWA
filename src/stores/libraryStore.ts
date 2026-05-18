@@ -171,6 +171,12 @@ export const useLibraryStore = defineStore('library', () => {
         downloadAborted = true
     }
 
+    async function markAllAsRead(fictionDbId: number) {
+        await db.chapters.where('fictionDbId').equals(fictionDbId).modify({ isRead: true })
+        await db.fictions.update(fictionDbId, { unreadCount: 0 })
+        await loadLibrary()
+    }
+
     const totalUnread = computed(() =>
         fictions.value.reduce((sum, f) => sum + (f.unreadCount ?? 0), 0)
     )
@@ -189,5 +195,6 @@ export const useLibraryStore = defineStore('library', () => {
         getChapters,
         downloadAllChapters,
         abortDownload,
+        markAllAsRead,
     }
 })

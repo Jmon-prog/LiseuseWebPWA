@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
-import basicSsl from '@vitejs/plugin-basic-ssl'
 
 export default defineConfig({
   base: '/LiseuseWebPWA/',
@@ -11,11 +10,9 @@ export default defineConfig({
   },
   preview: {
     host: true,
-    https: {} as any,
   },
   plugins: [
     vue(),
-    basicSsl(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'cover-placeholder.svg'],

@@ -1,9 +1,9 @@
 <template>
-  <div class="fiction-card" @click="$emit('click')">
+  <div class="fiction-card" :class="{ 'fiction-card--unread': fiction.unreadCount > 0 }" @click="$emit('click')">
     <div class="fiction-card__cover">
       <img :src="fiction.coverUrl" :alt="fiction.title" loading="lazy" @error="onImgError" />
       <span v-if="fiction.unreadCount > 0" class="fiction-card__badge">
-        {{ fiction.unreadCount }}
+        +{{ fiction.unreadCount }} nouveau{{ fiction.unreadCount > 1 ? 'x' : '' }}
       </span>
       <button
         class="fiction-card__delete"
@@ -56,18 +56,21 @@ function onImgError(e: Event) {
   height: 100%;
   object-fit: cover;
 }
+.fiction-card--unread {
+  box-shadow: 0 0 0 2px var(--color-accent), 0 2px 8px rgba(0, 0, 0, 0.12);
+}
 .fiction-card__badge {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  bottom: 0;
+  left: 0;
+  right: 0;
   background: var(--color-accent);
   color: #fff;
-  border-radius: 999px;
   font-size: 0.7rem;
   font-weight: 700;
-  padding: 2px 7px;
-  min-width: 20px;
+  padding: 4px 6px;
   text-align: center;
+  letter-spacing: 0.02em;
 }
 .fiction-card__delete {
   position: absolute;

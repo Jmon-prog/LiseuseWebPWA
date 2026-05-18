@@ -15,6 +15,9 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       includeAssets: ['favicon.ico', 'cover-placeholder.svg'],
       devOptions: {
         enabled: true,
@@ -38,29 +41,8 @@ export default defineConfig({
           { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        runtimeCaching: [
-          {
-            // Cache des couvertures (CDN Royal Road — covers-large et covers-full)
-            urlPattern: /^https:\/\/www\.royalroadcdn\.com\/public\/covers-/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'rr-covers',
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            },
-          },
-          {
-            // Pages Royal Road — NetworkFirst pour contenu à jour
-            urlPattern: /^https:\/\/www\.royalroad\.com\//,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'rr-pages',
-              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 },
-              networkTimeoutSeconds: 10,
-            },
-          },
-        ],
       },
     }),
   ],

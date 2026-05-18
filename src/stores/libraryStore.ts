@@ -104,13 +104,30 @@ export const useLibraryStore = defineStore('library', () => {
         return db.chapters.where('fictionDbId').equals(fictionDbId).sortBy('order')
     }
 
-    const downloadProgress = ref<{ done: number; total: number } | null>(null)
+    const downloadProgress = ref<{ done: number; total: number; title: string } | null>(null)
     let downloadAborted = false
+
+    async function sendNotification(title: string, body: string) {
+        const icon = '/LiseuseWebPWA/pwa-192x192.png'
+        try {
+            if ('serviceWorker' in navigator) {
+                const reg = await navigator.serviceWorker.getRegistration()
+                if (reg) { reg.showNotification(title, { body, icon }); return }
+            }
+            if (Notification.permission === 'granted') {
+                new Notification(title, { body, icon })
+            }
+        } catch { /* notifications non supportées */ }
+    }
 
     async function downloadAllChapters(
         fiction: FictionRecord,
         onProgress?: (done: number, total: number) => void
     ): Promise<{ done: number; skipped: number }> {
+        if (Notification.permission === 'default') {
+            await Notification.requestPermission()
+        }
+
         const service = resolveService(fiction.url)
         if (!service) throw new Error('Service source introuvable')
 
@@ -120,7 +137,7 @@ export const useLibraryStore = defineStore('library', () => {
 
         const pending = all.filter(c => !c.content)
         downloadAborted = false
-        downloadProgress.value = { done: 0, total: pending.length }
+        downloadProgress.value = { done: 0, total: pending.length, title: fiction.title }
 
         let done = 0
         for (const ch of pending) {
@@ -132,13 +149,21 @@ export const useLibraryStore = defineStore('library', () => {
             } catch {
                 // On continue même si un chapitre échoue
             }
-            downloadProgress.value = { done, total: pending.length }
+            downloadProgress.value = { done, total: pending.length, title: fiction.title }
             onProgress?.(done, pending.length)
             // Pause anti rate-limit
             await new Promise(r => setTimeout(r, 400))
         }
 
         downloadProgress.value = null
+
+        if (!downloadAborted) {
+            await sendNotification(
+                '📥 Téléchargement terminé',
+                `« ${fiction.title} » — ${done} chapitre${done > 1 ? 's' : ''} téléchargé${done > 1 ? 's' : ''}`
+            )
+        }
+
         return { done, skipped: pending.length - done }
     }
 

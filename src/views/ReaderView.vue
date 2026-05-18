@@ -180,15 +180,15 @@ async function markRead(ch: ChapterRecord) {
 }
 
 async function appendChapter(ch: ChapterRecord) {
-  const item: LoadedChapter = { chapter: ch, html: '', loading: true, error: null }
-  loadedChapters.value.push(item)
+  loadedChapters.value.push({ chapter: ch, html: '', loading: true, error: null })
+  const idx = loadedChapters.value.length - 1
   try {
-    item.html = await fetchHtml(ch)
+    loadedChapters.value[idx].html = await fetchHtml(ch)
     await markRead(ch)
   } catch (e: unknown) {
-    item.error = e instanceof Error ? e.message : String(e)
+    loadedChapters.value[idx].error = e instanceof Error ? e.message : String(e)
   } finally {
-    item.loading = false
+    loadedChapters.value[idx].loading = false
   }
 }
 

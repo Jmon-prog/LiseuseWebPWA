@@ -66,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { db, type FictionRecord, type ChapterRecord } from '@/db'
 import { useLibraryStore } from '@/stores/libraryStore'
@@ -89,7 +89,9 @@ const allOffline = computed(() =>
   chapters.value.length > 0 && chapters.value.every(c => !!c.content)
 )
 
-const sortDesc = ref(false)
+const sortKey = `chapter-sort-desc-${props.fictionDbId}`
+const sortDesc = ref(localStorage.getItem(sortKey) === 'true')
+watch(sortDesc, v => localStorage.setItem(sortKey, String(v)))
 const sortedChapters = computed(() =>
   [...chapters.value].sort((a, b) => sortDesc.value ? b.order - a.order : a.order - b.order)
 )

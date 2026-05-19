@@ -10,6 +10,15 @@
     </div>
   </Transition>
 
+  <!-- Indicateur sync au démarrage -->
+  <Transition name="dl-slide">
+    <div v-if="library.syncAllProgress" class="sync-bar">
+      <span class="sync-bar__icon">🔄</span>
+      <span class="sync-bar__text">{{ library.syncAllProgress.title }}</span>
+      <span class="sync-bar__count">{{ library.syncAllProgress.done }}/{{ library.syncAllProgress.total }}</span>
+    </div>
+  </Transition>
+
   <!-- Bandeau de téléchargement global -->
   <Transition name="dl-slide">
     <div v-if="library.downloadProgress" class="dl-bar">
@@ -49,6 +58,8 @@ const library = useLibraryStore()
 
 onMounted(async () => {
   settings.applyTheme()
+  await library.loadLibrary()
+  library.refreshAllFictions() // en arrière-plan, sans await
   await registerPeriodicSync()
 })
 
@@ -66,6 +77,35 @@ async function registerPeriodicSync() {
 </script>
 
 <style>
+.sync-bar {
+  position: fixed;
+  bottom: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #6b7280);
+  white-space: nowrap;
+  max-width: 90vw;
+  overflow: hidden;
+}
+.sync-bar__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.sync-bar__count {
+  font-weight: 600;
+  color: var(--color-accent, #2563eb);
+}
 .update-bar {
   position: fixed;
   top: 0;

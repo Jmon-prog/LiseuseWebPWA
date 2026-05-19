@@ -104,6 +104,28 @@ export const useLibraryStore = defineStore('library', () => {
         return db.chapters.where('fictionDbId').equals(fictionDbId).sortBy('order')
     }
 
+    const syncingAll = ref(false)
+    const syncAllProgress = ref<{ done: number; total: number; title: string } | null>(null)
+
+    async function refreshAllFictions() {
+        if (syncingAll.value) return
+        const list = [...fictions.value]
+        if (list.length === 0) return
+        syncingAll.value = true
+        syncAllProgress.value = { done: 0, total: list.length, title: '' }
+        try {
+            for (let i = 0; i < list.length; i++) {
+                syncAllProgress.value = { done: i, total: list.length, title: list[i].title }
+                try {
+                    await refreshChapters(list[i])
+                } catch { /* on ignore les erreurs par fiction */ }
+            }
+        } finally {
+            syncingAll.value = false
+            syncAllProgress.value = null
+        }
+    }
+
     const downloadProgress = ref<{ done: number; total: number; title: string } | null>(null)
     let downloadAborted = false
 
@@ -196,5 +218,8 @@ export const useLibraryStore = defineStore('library', () => {
         downloadAllChapters,
         abortDownload,
         markAllAsRead,
+        syncingAll,
+        syncAllProgress,
+        refreshAllFictions,
     }
 })

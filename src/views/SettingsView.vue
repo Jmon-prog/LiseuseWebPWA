@@ -48,6 +48,17 @@
     </section>
 
     <section class="settings__section">
+      <h2>Mise à jour</h2>
+      <div class="settings__row">
+        <label for="check-update">Version installée: {{ appVersion }}</label>
+        <button id="check-update" class="btn-notify" :disabled="checkingUpdate" @click="checkForUpdate">
+          {{ checkingUpdate ? 'Recherche…' : 'Rechercher' }}
+        </button>
+      </div>
+      <p v-if="updateStatus" class="settings__about">{{ updateStatus }}</p>
+    </section>
+
+    <section class="settings__section">
       <h2>À propos</h2>
       <p class="settings__about">LiseuseWeb — PWA locale, aucune donnée envoyée à un serveur.</p>
     </section>
@@ -61,6 +72,9 @@ import { useSettingsStore } from '@/stores/settingsStore'
 
 const router = useRouter()
 const settings = useSettingsStore()
+const appVersion = __APP_VERSION__
+const checkingUpdate = ref(false)
+const updateStatus = ref('')
 
 const notifStatus = ref(
   'Notification' in window
@@ -74,6 +88,48 @@ async function requestNotifPermission() {
   if (!('Notification' in window)) return
   const result = await Notification.requestPermission()
   notifStatus.value = result === 'granted' ? '✓ Activées' : 'Refusé'
+}
+
+async function checkForUpdate() {
+  if (!('serviceWorker' in navigator)) {
+    updateStatus.value = 'Les mises à jour ne sont pas prises en charge par ce navigateur.'
+    return
+  }
+
+  checkingUpdate.value = true
+  updateStatus.value = ''
+  try {
+    const registration = await navigator.serviceWorker.getRegistration()
+    if (!registration) {
+      updateStatus.value = 'Le service de mise à jour n’est pas encore installé.'
+      return
+    }
+
+    await registration.update()
+    const worker = registration.waiting ?? registration.installing
+    if (!worker) {
+      updateStatus.value = 'Vous utilisez déjà la dernière version.'
+      return
+    }
+
+    if (worker.state !== 'installed') {
+      updateStatus.value = 'Mise à jour trouvée. Téléchargement…'
+      await new Promise<void>(resolve => worker.addEventListener('statechange', () => resolve(), { once: true }))
+    }
+
+    if (!registration.waiting) {
+      updateStatus.value = 'La mise à jour n’a pas pu être installée.'
+      return
+    }
+
+    updateStatus.value = 'Mise à jour trouvée. Redémarrage…'
+    navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true })
+    registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+  } catch {
+    updateStatus.value = 'Impossible de rechercher une mise à jour. Réessayez plus tard.'
+  } finally {
+    checkingUpdate.value = false
+  }
 }
 </script>
 

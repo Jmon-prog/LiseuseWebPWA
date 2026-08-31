@@ -14,7 +14,6 @@ export interface FictionRecord {
     addedAt: number
     lastUpdatedAt: number
     lastReadChapterId?: string
-    lastReadEpubCfi?: string
     lastReadScrollY?: number
     lastNotifiedChapterId?: string
     totalChapters: number

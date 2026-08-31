@@ -2,7 +2,6 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { db, type FictionRecord, type ChapterRecord } from '@/db'
 import { resolveService } from '@/sources'
-import { downloadEpub } from '@/core/services/epub'
 
 export const useLibraryStore = defineStore('library', () => {
     const fictions = ref<FictionRecord[]>([])
@@ -238,17 +237,6 @@ export const useLibraryStore = defineStore('library', () => {
         downloadAborted = true
     }
 
-    async function exportEpub(fiction: FictionRecord) {
-        const { skipped } = await downloadAllChapters(fiction)
-        if (skipped > 0) throw new Error('EPUB non créé: certains chapitres n’ont pas pu être téléchargés.')
-        const [updatedFiction, chapters] = await Promise.all([
-            db.fictions.get(fiction.id!),
-            getChapters(fiction.id!),
-        ])
-        if (!updatedFiction) throw new Error('Fiction introuvable')
-        downloadEpub(updatedFiction, chapters)
-    }
-
     async function markAllAsRead(fictionDbId: number) {
         await db.chapters.where('fictionDbId').equals(fictionDbId).modify({ isRead: true })
         await db.fictions.update(fictionDbId, { unreadCount: 0 })
@@ -273,7 +261,6 @@ export const useLibraryStore = defineStore('library', () => {
         getChapters,
         downloadAllChapters,
         abortDownload,
-        exportEpub,
         markAllAsRead,
         syncingAll,
         syncAllProgress,

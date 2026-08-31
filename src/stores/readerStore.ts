@@ -3,7 +3,7 @@ import { db, type FictionRecord, type ChapterRecord } from '@/db'
 import { resolveService } from '@/sources'
 
 export const useReaderStore = defineStore('reader', () => {
-    async function openChapter(fictionRecord: FictionRecord, chapterRecord: ChapterRecord) {
+    async function openChapter(fictionRecord: FictionRecord, chapterRecord: ChapterRecord): Promise<string> {
         await downloadChapter(chapterRecord, fictionRecord)
         await db.chapters.update(chapterRecord.id!, { isRead: true })
         const unread = await db.chapters
@@ -14,6 +14,7 @@ export const useReaderStore = defineStore('reader', () => {
             lastReadChapterId: chapterRecord.chapterId,
             unreadCount: unread,
         })
+        return chapterRecord.content!
     }
 
     async function downloadChapter(chapterRecord: ChapterRecord, fictionRecord: FictionRecord) {
@@ -25,8 +26,13 @@ export const useReaderStore = defineStore('reader', () => {
         await db.chapters.update(chapterRecord.id!, { content: content.html })
     }
 
+    async function saveScrollPosition(fictionId: number, scrollY: number) {
+        await db.fictions.update(fictionId, { lastReadScrollY: scrollY })
+    }
+
     return {
         openChapter,
         downloadChapter,
+        saveScrollPosition,
     }
 })

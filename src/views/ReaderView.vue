@@ -2,6 +2,7 @@
   <div
     class="reader"
     :data-theme="settings.theme"
+    :style="readerStyle"
   >
     <!-- Barre de navigation -->
     <nav class="reader__nav" :class="{ 'reader__nav--hidden': navHidden }">
@@ -10,9 +11,13 @@
       <button class="reader__nav-btn" @click="showPanel = !showPanel">Aa</button>
     </nav>
 
-    <main ref="epubEl" class="reader__content">
-      <div v-if="loading" class="reader__loading">Ouverture de l’EPUB…</div>
-      <div v-else-if="error" class="reader__error">{{ error }}</div>
+    <main ref="readerEl" class="reader__content" @scroll.passive="onScroll">
+      <article v-if="chapter" class="reader__chapter">
+        <h2 class="reader__chapter-title">{{ chapter.title }}</h2>
+        <div v-if="loading" class="reader__loading">Chargement…</div>
+        <div v-else-if="error" class="reader__error">{{ error }}</div>
+        <div v-else class="reader__body" v-html="chapterHtml" />
+      </article>
     </main>
 
     <!-- Footer navigation -->
@@ -78,8 +83,6 @@ import { useRouter } from 'vue-router'
 import { db, type FictionRecord, type ChapterRecord } from '@/db'
 import { useReaderStore } from '@/stores/readerStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import ePub, { type Book, type Location, type Rendition } from 'epubjs'
-import { createEpub, getEpubChapterHref } from '@/core/services/epub'
 
 const props = defineProps<{ fictionDbId: number; chapterId: string }>()
 
@@ -87,77 +90,46 @@ const router = useRouter()
 const reader = useReaderStore()
 const settings = useSettingsStore()
 
-const epubEl = ref<HTMLElement | null>(null)
+const readerEl = ref<HTMLElement | null>(null)
 const showPanel = ref(false)
 const navHidden = ref(false)
+const lastScrollY = ref(0)
 
 const fiction = ref<FictionRecord | null>(null)
 const allChapters = ref<ChapterRecord[]>([])
 const currentChapterIdx = ref(0)
 const loading = ref(true)
 const error = ref<string | null>(null)
+const chapterHtml = ref('')
 
-const currentChapter = computed(() => allChapters.value[currentChapterIdx.value] ?? null)
-const currentTitle = computed(() => currentChapter.value?.title ?? '')
+const chapter = computed(() => allChapters.value[currentChapterIdx.value] ?? null)
+const currentTitle = computed(() => chapter.value?.title ?? '')
 
-async function markRead(ch: ChapterRecord, cfi = '') {
-  await db.chapters.update(ch.id!, { isRead: true })
-  const unread = await db.chapters
-    .where('fictionDbId').equals(props.fictionDbId)
-    .and(c => !c.isRead)
-    .count()
-  await db.fictions.update(props.fictionDbId, {
-    lastReadChapterId: ch.chapterId,
-    lastReadEpubCfi: cfi,
-    unreadCount: unread,
-  })
-}
+const readerStyle = computed(() => ({
+  fontFamily: settings.fontFamily,
+  fontSize: `${settings.fontSize}px`,
+  lineHeight: settings.lineHeight,
+  '--column-width': `${settings.columnWidth}px`,
+  '--margin-x': `${settings.marginX}px`,
+}))
 
-let book: Book | null = null
-let rendition: Rendition | null = null
-
-function applyReaderSettings() {
-  if (!rendition) return
-  rendition.themes.override('font-family', settings.fontFamily)
-  rendition.themes.override('font-size', `${settings.fontSize}px`)
-  rendition.themes.override('line-height', String(settings.lineHeight))
-  rendition.themes.override('max-width', `${settings.columnWidth}px`)
-  rendition.themes.override('margin', `${settings.marginX}px auto`)
-}
-
-async function openEpub(chapterId: string) {
+async function loadChapter(chapterId: string, restorePosition = false) {
   const f = fiction.value
   const target = allChapters.value.find(chapter => chapter.chapterId === chapterId)
-  if (!f || !target || !epubEl.value) return
-
-  let rebuild = !rendition
-  if (!target.content) {
-    await reader.downloadChapter(target, f)
-    allChapters.value = await db.chapters.where('fictionDbId').equals(props.fictionDbId).sortBy('order')
-    rebuild = true
-  }
-
-  const href = getEpubChapterHref(chapterId, allChapters.value)
-  if (!href) throw new Error('Le chapitre choisi ne peut pas être ajouté à l’EPUB.')
+  if (!f || !target) return
+  loading.value = true
+  error.value = null
   const targetIndex = allChapters.value.findIndex(chapter => chapter.chapterId === chapterId)
-  if (rebuild) {
-    book?.destroy()
-    epubEl.value.replaceChildren()
-    book = ePub(await createEpub(f, allChapters.value).arrayBuffer())
-    rendition = book.renderTo(epubEl.value, { width: '100%', height: '100%', flow: 'scrolled-doc' })
-    rendition.on('relocated', (location: Location) => {
-      const index = allChapters.value.findIndex(chapter => getEpubChapterHref(chapter.chapterId, allChapters.value) === location.start.href)
-      if (index === -1) return
-      currentChapterIdx.value = index
-      void markRead(allChapters.value[index], location.start.cfi)
-      router.replace(`/fiction/${props.fictionDbId}/read/${allChapters.value[index].chapterId}`)
-    })
-    applyReaderSettings()
+  try {
+    chapterHtml.value = await reader.openChapter(f, target)
+    currentChapterIdx.value = targetIndex
+    await nextTick()
+    readerEl.value?.scrollTo({ top: restorePosition ? f.lastReadScrollY ?? 0 : 0 })
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
   }
-  currentChapterIdx.value = targetIndex
-  await markRead(allChapters.value[targetIndex])
-  const location = f.lastReadChapterId === chapterId && f.lastReadEpubCfi ? f.lastReadEpubCfi : href
-  await rendition!.display(location)
 }
 
 // ── Montage ────────────────────────────────────────────────────────────────
@@ -168,26 +140,20 @@ onMounted(async () => {
     fiction.value = await db.fictions.get(props.fictionDbId) ?? null
     if (!fiction.value) throw new Error('Fiction introuvable')
     allChapters.value = await db.chapters.where('fictionDbId').equals(props.fictionDbId).sortBy('order')
-    await nextTick()
-    await openEpub(props.chapterId)
-  } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : String(e)
+    await loadChapter(props.chapterId, fiction.value.lastReadChapterId === props.chapterId)
   } finally {
     loading.value = false
   }
 })
 
-watch([() => settings.theme, () => settings.fontFamily, () => settings.fontSize, () => settings.lineHeight, () => settings.columnWidth, () => settings.marginX], () => {
-  settings.applyTheme()
-  applyReaderSettings()
-})
+watch(() => settings.theme, () => settings.applyTheme())
 
 watch(() => props.chapterId, async chapterId => {
-  if (!loading.value && chapterId !== currentChapter.value?.chapterId) await openEpub(chapterId)
+  if (chapterId !== chapter.value?.chapterId) await loadChapter(chapterId)
 })
 
 onBeforeUnmount(() => {
-  book?.destroy()
+  if (fiction.value?.id && readerEl.value) void reader.saveScrollPosition(fiction.value.id, readerEl.value.scrollTop)
 })
 
 // ── Navigation ─────────────────────────────────────────────────────────────
@@ -195,13 +161,25 @@ onBeforeUnmount(() => {
 async function goPrev() {
   const idx = currentChapterIdx.value
   if (idx <= 0) return
-  await openEpub(allChapters.value[idx - 1].chapterId)
+  await goToChapter(allChapters.value[idx - 1].chapterId)
 }
 
 async function goNext() {
   const idx = currentChapterIdx.value
   if (idx >= allChapters.value.length - 1) return
-  await openEpub(allChapters.value[idx + 1].chapterId)
+  await goToChapter(allChapters.value[idx + 1].chapterId)
+}
+
+async function goToChapter(chapterId: string) {
+  if (fiction.value?.id && readerEl.value) await reader.saveScrollPosition(fiction.value.id, readerEl.value.scrollTop)
+  await router.push(`/fiction/${props.fictionDbId}/read/${chapterId}`)
+}
+
+function onScroll() {
+  const element = readerEl.value
+  if (!element) return
+  navHidden.value = element.scrollTop > lastScrollY.value && element.scrollTop > 60
+  lastScrollY.value = element.scrollTop
 }
 </script>
 
@@ -257,6 +235,22 @@ async function goNext() {
 }
 .reader__content {
   flex: 1;
+  overflow-y: auto;
+  padding: var(--margin-x);
+}
+.reader__chapter-title,
+.reader__body {
+  max-width: var(--column-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+.reader__chapter-title {
+  margin-top: 32px;
+  margin-bottom: 16px;
+  font-size: 1.2rem;
+}
+.reader__body {
+  padding-bottom: 32px;
 }
 .reader__loading,
 .reader__error {

@@ -7,6 +7,7 @@ import type {
 
 const BASE_URL = 'https://www.royalroad.com'
 const CDN_URL = 'https://www.royalroadcdn.com'
+const PROXY_URL = 'https://liseuseweb-proxy.montangon-julien.workers.dev/'
 const FICTION_REGEX = /royalroad\.com\/fiction\/(\d+)\/([\w-]+)/
 
 export class RoyalRoadService implements ISourceService {
@@ -33,7 +34,7 @@ export class RoyalRoadService implements ISourceService {
 
     // ── HTTP + DOM ─────────────────────────────────────────────────────────────
 
-    /** Tente d'abord un fetch direct, bascule sur corsproxy.io si le navigateur bloque le CORS. */
+    /** Tente d'abord un fetch direct, bascule sur le Worker si le navigateur bloque le CORS. */
     private async fetchDoc(url: string, attempt = 1): Promise<Document> {
         let html: string
 
@@ -50,8 +51,8 @@ export class RoyalRoadService implements ISourceService {
             html = await res.text()
         } catch (e: unknown) {
             if (e instanceof Error && (e.message.startsWith('Fetch échoué') || e.message.startsWith('Royal Road a répondu'))) throw e
-            // Royal Road bloque le CORS navigateur → proxy public gratuit
-            const proxied = `https://corsproxy.io/?url=${encodeURIComponent(url)}`
+            // Royal Road bloque le CORS navigateur → Worker Cloudflare dédié.
+            const proxied = `${PROXY_URL}?url=${encodeURIComponent(url)}`
             const res = await fetch(proxied)
             if (res.status === 429) {
                 if (attempt <= 3) {

@@ -9,6 +9,7 @@ declare const self: ServiceWorkerGlobalScope & typeof globalThis
 const APP_BASE = '/LiseuseWebPWA/'
 const DB_NAME = 'LiseuseWebDB'
 const DB_VERSION = 1
+const PROXY_URL = 'https://liseuseweb-proxy.montangon-julien.workers.dev/'
 
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
@@ -91,7 +92,7 @@ async function fetchHTML(url: string): Promise<string> {
         const r = await fetch(url, opts)
         if (r.ok) return r.text()
     } catch { /* réseau ou CORS → proxy */ }
-    const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(url)}`, opts)
+    const r = await fetch(`${PROXY_URL}?url=${encodeURIComponent(url)}`, opts)
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     return r.text()
 }

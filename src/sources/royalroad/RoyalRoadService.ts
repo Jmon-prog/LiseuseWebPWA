@@ -50,30 +50,18 @@ export class RoyalRoadService implements ISourceService {
             html = await res.text()
         } catch (e: unknown) {
             if (e instanceof Error && (e.message.startsWith('Fetch échoué') || e.message.startsWith('Royal Road a répondu'))) throw e
-            // Royal Road bloque le CORS navigateur; les proxys publics peuvent être temporairement bloqués.
-            const proxies = [
-                `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-                `https://corsproxy.org/?${encodeURIComponent(url)}`,
-            ]
-            for (const proxied of proxies) {
-                try {
-                    const res = await fetch(proxied)
-                    if (res.status === 429) {
-                        if (attempt <= 3) {
-                            await new Promise(r => setTimeout(r, 2000 * attempt))
-                            return this.fetchDoc(url, attempt + 1)
-                        }
-                        throw new Error(`Fetch échoué [429] : ${url}`)
-                    }
-                    if (res.ok) {
-                        html = await res.text()
-                        return new DOMParser().parseFromString(html, 'text/html')
-                    }
-                } catch (proxyError) {
-                    if (proxyError instanceof Error && proxyError.message.startsWith('Fetch échoué')) throw proxyError
+            // Royal Road bloque le CORS navigateur → proxy public gratuit
+            const proxied = `https://corsproxy.io/?url=${encodeURIComponent(url)}`
+            const res = await fetch(proxied)
+            if (res.status === 429) {
+                if (attempt <= 3) {
+                    await new Promise(r => setTimeout(r, 2000 * attempt))
+                    return this.fetchDoc(url, attempt + 1)
                 }
+                throw new Error(`Fetch échoué [429] : ${url}`)
             }
-            throw new Error(`Fetch échoué via les proxys CORS : ${url}`)
+            if (!res.ok) throw new Error(`Fetch échoué [${res.status}] : ${url}`)
+            html = await res.text()
         }
 
         return new DOMParser().parseFromString(html, 'text/html')

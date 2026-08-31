@@ -106,19 +106,26 @@ async function checkAllFictionsForNewChapters() {
 
     for (const fiction of fictions) {
         try {
-            // Nombre de chapitres stockés
+            // Les nouveautés apparaissent sur la première page de Royal Road;
+            // comparer les IDs évite les faux négatifs pour les longues fictions paginées.
             const chapStore = idb.transaction('chapters', 'readonly').objectStore('chapters')
             const idx = chapStore.index('fictionDbId')
-            const storedCount: number = await idbRequest(idx.count(IDBKeyRange.only(fiction.id)))
+            const storedChapters = await idbRequest(idx.getAll(IDBKeyRange.only(fiction.id)))
+            const storedIds = new Set(storedChapters.map(chapter => chapter.chapterId))
 
             // Fetch page RoyalRoad et extrait les IDs de chapitre par regex (pas de DOM dans SW)
             const html = await fetchHTML(fiction.url)
             const matches = html.match(/\/chapter\/(\d+)\//g) ?? []
             const uniqueIds = new Set(matches)
-            const liveCount = uniqueIds.size
+            const newIds = [...uniqueIds]
+                .map(match => match.match(/\d+/)?.[0] ?? '')
+                .filter(chapterId => chapterId && !storedIds.has(chapterId))
+            const latestChapterId = [...uniqueIds]
+                .map(match => match.match(/\d+/)?.[0] ?? '')
+                .sort((left, right) => Number(right) - Number(left))[0]
 
-            if (liveCount > storedCount) {
-                const newCount = liveCount - storedCount
+            if (newIds.length > 0 && latestChapterId && latestChapterId !== fiction.lastNotifiedChapterId) {
+                const newCount = newIds.length
                 await self.registration.showNotification('📖 Nouveaux chapitres !', {
                     body: `« ${fiction.title} » — ${newCount} nouveau${newCount > 1 ? 'x' : ''} chapitre${newCount > 1 ? 's' : ''} disponible${newCount > 1 ? 's' : ''}`,
                     icon: self.location.origin + APP_BASE + 'pwa-192x192.png',
@@ -127,6 +134,11 @@ async function checkAllFictionsForNewChapters() {
                     renotify: true,
                     data: { fictionDbId: fiction.id },
                 } as NotificationOptions)
+                await idbRequest(
+                    idb.transaction('fictions', 'readwrite')
+                        .objectStore('fictions')
+                        .put({ ...fiction, lastNotifiedChapterId: latestChapterId })
+                )
             }
 
             // Délai entre chaque fiction pour éviter le rate-limiting

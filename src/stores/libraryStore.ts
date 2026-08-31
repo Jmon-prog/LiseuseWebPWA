@@ -58,16 +58,35 @@ export const useLibraryStore = defineStore('library', () => {
     }
 
     const refreshProgress = ref<{ found: number; page: number } | null>(null)
+    const refreshTasks = new Map<number, Promise<number>>()
 
     async function refreshChapters(fiction: FictionRecord): Promise<number> {
+        const fictionId = fiction.id!
+        const existing = refreshTasks.get(fictionId)
+        if (existing) return existing
+
+        const task = refreshChapterList(fiction)
+        refreshTasks.set(fictionId, task)
+        try {
+            return await task
+        } finally {
+            refreshTasks.delete(fictionId)
+        }
+    }
+
+    async function refreshChapterList(fiction: FictionRecord): Promise<number> {
         const service = resolveService(fiction.url)
         if (!service) throw new Error('Service source introuvable')
 
         refreshProgress.value = { found: 0, page: 1 }
-        const remoteChapters = await service.getChapterList(fiction.url, (found, page) => {
-            refreshProgress.value = { found, page }
-        })
-        refreshProgress.value = null
+        let remoteChapters
+        try {
+            remoteChapters = await service.getChapterList(fiction.url, (found, page) => {
+                refreshProgress.value = { found, page }
+            })
+        } finally {
+            refreshProgress.value = null
+        }
         const localChapters = await db.chapters
             .where('fictionDbId').equals(fiction.id!)
             .sortBy('order')
@@ -89,9 +108,14 @@ export const useLibraryStore = defineStore('library', () => {
                 }))
             )
 
+            const unreadCount = await db.chapters
+                .where('fictionDbId').equals(fiction.id!)
+                .and(chapter => !chapter.isRead)
+                .count()
+
             await db.fictions.update(fiction.id!, {
                 totalChapters: remoteChapters.length,
-                unreadCount: (fiction.unreadCount ?? 0) + newOnes.length,
+                unreadCount,
                 lastUpdatedAt: Date.now(),
             })
 
@@ -129,6 +153,7 @@ export const useLibraryStore = defineStore('library', () => {
 
     const downloadProgress = ref<{ done: number; total: number; title: string } | null>(null)
     let downloadAborted = false
+    let downloadTask: { fictionId: number; promise: Promise<{ done: number; skipped: number }> } | null = null
 
     async function sendNotification(title: string, body: string) {
         const icon = '/LiseuseWebPWA/pwa-192x192.png'
@@ -144,6 +169,25 @@ export const useLibraryStore = defineStore('library', () => {
     }
 
     async function downloadAllChapters(
+        fiction: FictionRecord,
+        onProgress?: (done: number, total: number) => void
+    ): Promise<{ done: number; skipped: number }> {
+        const fictionId = fiction.id!
+        if (downloadTask) {
+            if (downloadTask.fictionId === fictionId) return downloadTask.promise
+            throw new Error('Un téléchargement est déjà en cours pour une autre fiction.')
+        }
+
+        const task = downloadChapters(fiction, onProgress)
+        downloadTask = { fictionId, promise: task }
+        try {
+            return await task
+        } finally {
+            downloadTask = null
+        }
+    }
+
+    async function downloadChapters(
         fiction: FictionRecord,
         onProgress?: (done: number, total: number) => void
     ): Promise<{ done: number; skipped: number }> {
@@ -195,7 +239,8 @@ export const useLibraryStore = defineStore('library', () => {
     }
 
     async function exportEpub(fiction: FictionRecord) {
-        await downloadAllChapters(fiction)
+        const { skipped } = await downloadAllChapters(fiction)
+        if (skipped > 0) throw new Error('EPUB non créé: certains chapitres n’ont pas pu être téléchargés.')
         const [updatedFiction, chapters] = await Promise.all([
             db.fictions.get(fiction.id!),
             getChapters(fiction.id!),

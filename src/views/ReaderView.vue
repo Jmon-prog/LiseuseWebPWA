@@ -2,7 +2,6 @@
   <div
     class="reader"
     :data-theme="settings.theme"
-    :style="readerStyle"
   >
     <!-- Barre de navigation -->
     <nav class="reader__nav" :class="{ 'reader__nav--hidden': navHidden }">
@@ -101,15 +100,7 @@ const error = ref<string | null>(null)
 const currentChapter = computed(() => allChapters.value[currentChapterIdx.value] ?? null)
 const currentTitle = computed(() => currentChapter.value?.title ?? '')
 
-const readerStyle = computed(() => ({
-  fontFamily: settings.fontFamily,
-  fontSize: settings.fontSize + 'px',
-  lineHeight: settings.lineHeight,
-  '--column-width': settings.columnWidth + 'px',
-  '--margin-x': settings.marginX + 'px',
-}))
-
-async function markRead(ch: ChapterRecord) {
+async function markRead(ch: ChapterRecord, cfi = '') {
   await db.chapters.update(ch.id!, { isRead: true })
   const unread = await db.chapters
     .where('fictionDbId').equals(props.fictionDbId)
@@ -117,6 +108,7 @@ async function markRead(ch: ChapterRecord) {
     .count()
   await db.fictions.update(props.fictionDbId, {
     lastReadChapterId: ch.chapterId,
+    lastReadEpubCfi: cfi,
     unreadCount: unread,
   })
 }
@@ -129,6 +121,8 @@ function applyReaderSettings() {
   rendition.themes.override('font-family', settings.fontFamily)
   rendition.themes.override('font-size', `${settings.fontSize}px`)
   rendition.themes.override('line-height', String(settings.lineHeight))
+  rendition.themes.override('max-width', `${settings.columnWidth}px`)
+  rendition.themes.override('margin', `${settings.marginX}px auto`)
 }
 
 async function openEpub(chapterId: string) {
@@ -136,28 +130,34 @@ async function openEpub(chapterId: string) {
   const target = allChapters.value.find(chapter => chapter.chapterId === chapterId)
   if (!f || !target || !epubEl.value) return
 
+  let rebuild = !rendition
   if (!target.content) {
     await reader.downloadChapter(target, f)
     allChapters.value = await db.chapters.where('fictionDbId').equals(props.fictionDbId).sortBy('order')
+    rebuild = true
   }
 
   const href = getEpubChapterHref(chapterId, allChapters.value)
   if (!href) throw new Error('Le chapitre choisi ne peut pas être ajouté à l’EPUB.')
   const targetIndex = allChapters.value.findIndex(chapter => chapter.chapterId === chapterId)
-  book?.destroy()
-  book = ePub(await createEpub(f, allChapters.value).arrayBuffer())
-  rendition = book.renderTo(epubEl.value, { width: '100%', height: '100%', flow: 'scrolled-doc' })
-  rendition.on('relocated', (location: Location) => {
-    const index = allChapters.value.findIndex(chapter => getEpubChapterHref(chapter.chapterId, allChapters.value) === location.start.href)
-    if (index === -1) return
-    currentChapterIdx.value = index
-    void markRead(allChapters.value[index])
-    router.replace(`/fiction/${props.fictionDbId}/read/${allChapters.value[index].chapterId}`)
-  })
-  applyReaderSettings()
+  if (rebuild) {
+    book?.destroy()
+    epubEl.value.replaceChildren()
+    book = ePub(await createEpub(f, allChapters.value).arrayBuffer())
+    rendition = book.renderTo(epubEl.value, { width: '100%', height: '100%', flow: 'scrolled-doc' })
+    rendition.on('relocated', (location: Location) => {
+      const index = allChapters.value.findIndex(chapter => getEpubChapterHref(chapter.chapterId, allChapters.value) === location.start.href)
+      if (index === -1) return
+      currentChapterIdx.value = index
+      void markRead(allChapters.value[index], location.start.cfi)
+      router.replace(`/fiction/${props.fictionDbId}/read/${allChapters.value[index].chapterId}`)
+    })
+    applyReaderSettings()
+  }
   currentChapterIdx.value = targetIndex
-  await rendition.display(href)
   await markRead(allChapters.value[targetIndex])
+  const location = f.lastReadChapterId === chapterId && f.lastReadEpubCfi ? f.lastReadEpubCfi : href
+  await rendition!.display(location)
 }
 
 // ── Montage ────────────────────────────────────────────────────────────────
@@ -177,7 +177,7 @@ onMounted(async () => {
   }
 })
 
-watch([() => settings.theme, () => settings.fontFamily, () => settings.fontSize, () => settings.lineHeight], () => {
+watch([() => settings.theme, () => settings.fontFamily, () => settings.fontSize, () => settings.lineHeight, () => settings.columnWidth, () => settings.marginX], () => {
   settings.applyTheme()
   applyReaderSettings()
 })
@@ -257,51 +257,12 @@ async function goNext() {
 }
 .reader__content {
   flex: 1;
-  padding: var(--margin-x);
-}
-.reader__chapter {
-  margin-bottom: 0;
-}
-.reader__chapter-title {
-  max-width: var(--column-width);
-  margin: 32px auto 16px;
-  font-size: 1.2rem;
-  font-weight: 700;
-  opacity: 0.75;
-}
-.reader__chapter-sep {
-  max-width: var(--column-width);
-  margin: 48px auto;
-  border-top: 2px dashed var(--color-border);
-}
-.reader__body {
-  max-width: var(--column-width);
-  margin: 0 auto;
-  padding-bottom: 8px;
 }
 .reader__loading,
 .reader__error {
   text-align: center;
   padding: 60px 20px;
   color: var(--color-text-muted);
-}
-.reader__end {
-  text-align: center;
-  padding: 40px 20px 80px;
-  color: var(--color-text-muted);
-  font-style: italic;
-}
-.reader__sentinel {
-  height: 1px;
-}
-.reader__progress {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  height: 3px;
-  background: var(--color-accent);
-  transition: width 0.1s linear;
-  z-index: 20;
 }
 .reader__footer {
   position: sticky;

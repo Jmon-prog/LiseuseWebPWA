@@ -130,5 +130,5 @@ export function downloadEpub(fiction: FictionRecord, chapters: ChapterRecord[]) 
     link.href = url
     link.download = `${fiction.title.replace(/[\\/:*?"<>|]/g, '-').trim() || 'fiction'}.epub`
     link.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }

@@ -10,6 +10,26 @@ const CDN_URL = 'https://www.royalroadcdn.com'
 const PROXY_URL = 'https://liseuseweb-proxy.montangon-julien.workers.dev/'
 const FICTION_REGEX = /royalroad\.com\/fiction\/(\d+)\/([\w-]+)/
 
+function sanitizeChapterHtml(content: Element) {
+    content.querySelectorAll('script, style, iframe, object, embed, form, base, link, meta').forEach(element => element.remove())
+    content.querySelectorAll('*').forEach(element => {
+        for (const attribute of [...element.attributes]) {
+            if (attribute.name.startsWith('on') || attribute.name === 'srcdoc') {
+                element.removeAttribute(attribute.name)
+                continue
+            }
+            if (!['href', 'src', 'xlink:href'].includes(attribute.name)) continue
+            try {
+                const url = new URL(attribute.value, BASE_URL)
+                if (!['http:', 'https:'].includes(url.protocol)) element.removeAttribute(attribute.name)
+                else element.setAttribute(attribute.name, url.href)
+            } catch {
+                element.removeAttribute(attribute.name)
+            }
+        }
+    })
+}
+
 export class RoyalRoadService implements ISourceService {
     readonly sourceId = 'royalroad'
     readonly sourceName = 'Royal Road'
@@ -164,6 +184,7 @@ export class RoyalRoadService implements ISourceService {
 
         // Supprimer les publicités
         contentEl.querySelectorAll('.advert, [class*="advert"], .ad-container').forEach(el => el.remove())
+        sanitizeChapterHtml(contentEl)
         const html = contentEl.innerHTML
 
         const chapterMatch = chapterUrl.match(/\/chapter\/(\d+)\//)

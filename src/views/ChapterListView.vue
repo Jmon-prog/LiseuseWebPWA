@@ -56,11 +56,12 @@
         :key="ch.id"
         class="chapter-item"
         :class="{ 'chapter-item--read': ch.isRead }"
-        @click="openChapter(ch)"
       >
-        <span class="chapter-item__title">{{ ch.title }}</span>
-        <span class="chapter-item__date">{{ formatDate(ch.publishedAt) }}</span>
-        <span v-if="ch.content" class="chapter-item__offline" title="Disponible hors ligne">📥</span>
+        <button class="chapter-item__button" @click="openChapter(ch)">
+          <span class="chapter-item__title">{{ ch.title }}</span>
+          <span class="chapter-item__date">{{ formatDate(ch.publishedAt) }}</span>
+          <span v-if="ch.content" class="chapter-item__offline" title="Disponible hors ligne">📥</span>
+        </button>
       </li>
     </ul>
 
@@ -307,16 +308,25 @@ function formatDate(iso: string): string {
   gap: 2px;
 }
 .chapter-item {
+  border-radius: 8px;
+  transition: background 0.1s;
+}
+.chapter-item:hover,
+.chapter-item:focus-within {
+  background: var(--color-surface-hover);
+}
+.chapter-item__button {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 12px 14px;
+  border: 0;
   border-radius: 8px;
+  background: none;
+  color: inherit;
   cursor: pointer;
-  transition: background 0.1s;
-}
-.chapter-item:hover {
-  background: var(--color-surface-hover);
+  text-align: left;
 }
 .chapter-item--read .chapter-item__title {
   color: var(--color-text-muted);

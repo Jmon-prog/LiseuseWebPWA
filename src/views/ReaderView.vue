@@ -3,10 +3,6 @@
     class="reader"
     :data-theme="settings.theme"
     :style="readerStyle"
-    @scroll.passive="onScroll"
-    @touchstart.passive="onTouchStart"
-    @touchend.passive="onTouchEnd"
-    ref="readerEl"
   >
     <!-- Barre de navigation -->
     <nav class="reader__nav" :class="{ 'reader__nav--hidden': navHidden }">
@@ -15,36 +11,16 @@
       <button class="reader__nav-btn" @click="showPanel = !showPanel">Aa</button>
     </nav>
 
-    <!-- Flux de chapitres -->
-    <main class="reader__content" @click.self="navHidden = !navHidden">
-      <article
-        v-for="item in loadedChapters"
-        :key="item.chapter.chapterId"
-        :data-chapter-id="item.chapter.chapterId"
-        class="reader__chapter"
-      >
-        <h2 class="reader__chapter-title">{{ item.chapter.title }}</h2>
-        <div v-if="item.loading" class="reader__loading">Chargement…</div>
-        <div v-else-if="item.error" class="reader__error">{{ item.error }}</div>
-        <div v-else class="reader__body" v-html="item.html" />
-        <div class="reader__chapter-sep" />
-      </article>
-
-      <div v-if="loadingNext" class="reader__loading">Chargement du chapitre suivant…</div>
-      <p v-else-if="noMoreChapters" class="reader__end">— Fin —</p>
-
-      <!-- Sentinel IntersectionObserver -->
-      <div ref="sentinelEl" class="reader__sentinel" />
+    <main ref="epubEl" class="reader__content">
+      <div v-if="loading" class="reader__loading">Ouverture de l’EPUB…</div>
+      <div v-else-if="error" class="reader__error">{{ error }}</div>
     </main>
-
-    <!-- Barre de progression -->
-    <div class="reader__progress" :style="{ width: progressPct + '%' }" />
 
     <!-- Footer navigation -->
     <footer class="reader__footer">
       <button
         class="reader__nav-btn"
-        :disabled="currentChapterIdx <= 0"
+        :disabled="currentChapterIdx <= 0 || loading"
         @click="goPrev"
       >← Précédent</button>
 
@@ -55,7 +31,7 @@
 
       <button
         class="reader__nav-btn"
-        :disabled="currentChapterIdx >= allChapters.length - 1"
+        :disabled="currentChapterIdx >= allChapters.length - 1 || loading"
         @click="goNext"
       >Suivant →</button>
     </footer>
@@ -92,13 +68,6 @@
         <label>Largeur colonne ({{ settings.columnWidth }}px)</label>
         <input type="range" min="300" max="900" step="20" v-model.number="settings.columnWidth" />
 
-        <button
-          v-if="currentChapter"
-          class="btn-download"
-          @click="downloadCurrent"
-        >
-          {{ currentChapter.content ? '✓ Disponible hors ligne' : '📥 Télécharger ce chapitre' }}
-        </button>
       </div>
     </transition>
   </div>
@@ -110,14 +79,8 @@ import { useRouter } from 'vue-router'
 import { db, type FictionRecord, type ChapterRecord } from '@/db'
 import { useReaderStore } from '@/stores/readerStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { resolveService } from '@/sources'
-
-interface LoadedChapter {
-  chapter: ChapterRecord
-  html: string
-  loading: boolean
-  error: string | null
-}
+import ePub, { type Book, type Location, type Rendition } from 'epubjs'
+import { createEpub, getEpubChapterHref } from '@/core/services/epub'
 
 const props = defineProps<{ fictionDbId: number; chapterId: string }>()
 
@@ -125,27 +88,18 @@ const router = useRouter()
 const reader = useReaderStore()
 const settings = useSettingsStore()
 
-const readerEl = ref<HTMLElement | null>(null)
-const sentinelEl = ref<HTMLElement | null>(null)
+const epubEl = ref<HTMLElement | null>(null)
 const showPanel = ref(false)
 const navHidden = ref(false)
-const lastScrollY = ref(0)
-const progressPct = ref(0)
-const loadingNext = ref(false)
 
 const fiction = ref<FictionRecord | null>(null)
 const allChapters = ref<ChapterRecord[]>([])
-const loadedChapters = ref<LoadedChapter[]>([])
 const currentChapterIdx = ref(0)
+const loading = ref(true)
+const error = ref<string | null>(null)
 
 const currentChapter = computed(() => allChapters.value[currentChapterIdx.value] ?? null)
 const currentTitle = computed(() => currentChapter.value?.title ?? '')
-const nextLoadedIdx = computed(() => {
-  if (loadedChapters.value.length === 0) return -1
-  const lastLoaded = loadedChapters.value[loadedChapters.value.length - 1]
-  return allChapters.value.findIndex(c => c.chapterId === lastLoaded.chapter.chapterId)
-})
-const noMoreChapters = computed(() => nextLoadedIdx.value >= allChapters.value.length - 1)
 
 const readerStyle = computed(() => ({
   fontFamily: settings.fontFamily,
@@ -154,18 +108,6 @@ const readerStyle = computed(() => ({
   '--column-width': settings.columnWidth + 'px',
   '--margin-x': settings.marginX + 'px',
 }))
-
-// ── Chargement HTML ────────────────────────────────────────────────────────
-
-async function fetchHtml(ch: ChapterRecord): Promise<string> {
-  if (ch.content) return ch.content
-  const f = fiction.value
-  if (!f) throw new Error('Fiction introuvable')
-  const service = resolveService(f.url)
-  if (!service) throw new Error('Service source introuvable')
-  const content = await service.getChapterContent(ch.url)
-  return content.html
-}
 
 async function markRead(ch: ChapterRecord) {
   await db.chapters.update(ch.id!, { isRead: true })
@@ -179,183 +121,87 @@ async function markRead(ch: ChapterRecord) {
   })
 }
 
-async function appendChapter(ch: ChapterRecord) {
-  loadedChapters.value.push({ chapter: ch, html: '', loading: true, error: null })
-  const idx = loadedChapters.value.length - 1
-  try {
-    loadedChapters.value[idx].html = await fetchHtml(ch)
-  } catch (e: unknown) {
-    loadedChapters.value[idx].error = e instanceof Error ? e.message : String(e)
-  } finally {
-    loadedChapters.value[idx].loading = false
+let book: Book | null = null
+let rendition: Rendition | null = null
+
+function applyReaderSettings() {
+  if (!rendition) return
+  rendition.themes.override('font-family', settings.fontFamily)
+  rendition.themes.override('font-size', `${settings.fontSize}px`)
+  rendition.themes.override('line-height', String(settings.lineHeight))
+}
+
+async function openEpub(chapterId: string) {
+  const f = fiction.value
+  const target = allChapters.value.find(chapter => chapter.chapterId === chapterId)
+  if (!f || !target || !epubEl.value) return
+
+  if (!target.content) {
+    await reader.downloadChapter(target, f)
+    allChapters.value = await db.chapters.where('fictionDbId').equals(props.fictionDbId).sortBy('order')
   }
-}
 
-async function loadNext() {
-  if (loadingNext.value || noMoreChapters.value) return
-  loadingNext.value = true
-  try {
-    const next = allChapters.value[nextLoadedIdx.value + 1]
-    if (next) await appendChapter(next)
-  } finally {
-    loadingNext.value = false
-  }
-}
-
-// ── IntersectionObserver ───────────────────────────────────────────────────
-
-let sentinelObserver: IntersectionObserver | null = null
-let chapterObserver: IntersectionObserver | null = null
-
-function setupSentinel() {
-  if (!sentinelEl.value) return
-  sentinelObserver = new IntersectionObserver(
-    entries => { if (entries[0].isIntersecting) loadNext() },
-    { rootMargin: '300px' }
-  )
-  sentinelObserver.observe(sentinelEl.value)
-}
-
-function observeChapterHeadings() {
-  chapterObserver?.disconnect()
-  chapterObserver = new IntersectionObserver(
-    entries => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          const id = (entry.target.closest('[data-chapter-id]') as HTMLElement | null)
-            ?.dataset.chapterId
-          if (!id) continue
-          const idx = allChapters.value.findIndex(c => c.chapterId === id)
-          if (idx !== -1) {
-            currentChapterIdx.value = idx
-            void markRead(allChapters.value[idx])
-            router.replace(`/fiction/${props.fictionDbId}/read/${id}`)
-          }
-        }
-      }
-    },
-    { threshold: 0.15 }
-  )
-  nextTick(() => {
-    readerEl.value
-      ?.querySelectorAll<HTMLElement>('.reader__chapter-title')
-      .forEach(el => chapterObserver!.observe(el))
+  const href = getEpubChapterHref(chapterId, allChapters.value)
+  if (!href) throw new Error('Le chapitre choisi ne peut pas être ajouté à l’EPUB.')
+  const targetIndex = allChapters.value.findIndex(chapter => chapter.chapterId === chapterId)
+  book?.destroy()
+  book = ePub(await createEpub(f, allChapters.value).arrayBuffer())
+  rendition = book.renderTo(epubEl.value, { width: '100%', height: '100%', flow: 'scrolled-doc' })
+  rendition.on('relocated', (location: Location) => {
+    const index = allChapters.value.findIndex(chapter => getEpubChapterHref(chapter.chapterId, allChapters.value) === location.start.href)
+    if (index === -1) return
+    currentChapterIdx.value = index
+    void markRead(allChapters.value[index])
+    router.replace(`/fiction/${props.fictionDbId}/read/${allChapters.value[index].chapterId}`)
   })
+  applyReaderSettings()
+  currentChapterIdx.value = targetIndex
+  await rendition.display(href)
+  await markRead(allChapters.value[targetIndex])
 }
-
-watch(() => loadedChapters.value.length, observeChapterHeadings)
 
 // ── Montage ────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
-  settings.applyTheme()
-  fiction.value = await db.fictions.get(props.fictionDbId) ?? null
-  if (!fiction.value) return
-
-  allChapters.value = await db.chapters
-    .where('fictionDbId').equals(props.fictionDbId)
-    .sortBy('order')
-
-  const startIdx = allChapters.value.findIndex(c => c.chapterId === props.chapterId)
-  if (startIdx === -1) return
-  currentChapterIdx.value = startIdx
-
-  await appendChapter(allChapters.value[startIdx])
-  await markRead(allChapters.value[startIdx])
-
-  // Restaurer position scroll
-  if (fiction.value.lastReadChapterId === props.chapterId && fiction.value.lastReadScrollY) {
+  try {
+    settings.applyTheme()
+    fiction.value = await db.fictions.get(props.fictionDbId) ?? null
+    if (!fiction.value) throw new Error('Fiction introuvable')
+    allChapters.value = await db.chapters.where('fictionDbId').equals(props.fictionDbId).sortBy('order')
     await nextTick()
-    setTimeout(() => readerEl.value?.scrollTo({ top: fiction.value!.lastReadScrollY }), 80)
+    await openEpub(props.chapterId)
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
   }
-
-  setupSentinel()
 })
 
-watch(() => settings.theme, () => settings.applyTheme())
+watch([() => settings.theme, () => settings.fontFamily, () => settings.fontSize, () => settings.lineHeight], () => {
+  settings.applyTheme()
+  applyReaderSettings()
+})
+
+watch(() => props.chapterId, async chapterId => {
+  if (!loading.value && chapterId !== currentChapter.value?.chapterId) await openEpub(chapterId)
+})
 
 onBeforeUnmount(() => {
-  sentinelObserver?.disconnect()
-  chapterObserver?.disconnect()
-  if (readerEl.value) reader.saveScrollPosition(readerEl.value.scrollTop)
+  book?.destroy()
 })
 
-// ── Touch / Swipe ───────────────────────────────────────────────────────
-
-const touchStart = { x: 0, y: 0 }
-
-function onTouchStart(e: TouchEvent) {
-  touchStart.x = e.touches[0].clientX
-  touchStart.y = e.touches[0].clientY
-}
-
-function onTouchEnd(e: TouchEvent) {
-  const dx = e.changedTouches[0].clientX - touchStart.x
-  const dy = e.changedTouches[0].clientY - touchStart.y
-  // Swipe horizontal uniquement (plus horizontal que vertical)
-  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return
-  if (dx < 0) goNext()   // swipe ← = chapitre suivant
-  else goPrev()           // swipe → = chapitre précédent
-}
-
-// ── Scroll ─────────────────────────────────────────────────────────────────
-
-function onScroll() {
-  const el = readerEl.value
-  if (!el) return
-  const sy = el.scrollTop
-  navHidden.value = sy > lastScrollY.value && sy > 60
-  lastScrollY.value = sy
-  const max = el.scrollHeight - el.clientHeight
-  progressPct.value = max > 0 ? (sy / max) * 100 : 0
-}
-
 // ── Navigation ─────────────────────────────────────────────────────────────
-
-function scrollToChapterId(chapterId: string) {
-  const el = readerEl.value?.querySelector(`[data-chapter-id="${chapterId}"]`) as HTMLElement | null
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth' })
-    return true
-  }
-  return false
-}
 
 async function goPrev() {
   const idx = currentChapterIdx.value
   if (idx <= 0) return
-  const ch = allChapters.value[idx - 1]
-  // Si déjà chargé dans le DOM, on scrolle
-  if (!scrollToChapterId(ch.chapterId)) {
-    // Sinon navigation classique
-    router.push(`/fiction/${props.fictionDbId}/read/${ch.chapterId}`)
-  } else {
-    await markRead(ch)
-  }
+  await openEpub(allChapters.value[idx - 1].chapterId)
 }
 
 async function goNext() {
   const idx = currentChapterIdx.value
   if (idx >= allChapters.value.length - 1) return
-  const ch = allChapters.value[idx + 1]
-  // Charger si pas encore dans le DOM
-  const isLoaded = loadedChapters.value.some(i => i.chapter.chapterId === ch.chapterId)
-  if (!isLoaded) await appendChapter(ch)
-  await nextTick()
-  scrollToChapterId(ch.chapterId)
-  await markRead(ch)
-}
-
-async function downloadCurrent() {
-  const ch = currentChapter.value
-  if (!ch || !fiction.value) return
-  await reader.downloadChapter(ch, fiction.value)
-  // Refresh content in loaded list
-  const item = loadedChapters.value.find(i => i.chapter.chapterId === ch.chapterId)
-  if (item) {
-    const updated = await db.chapters.get(ch.id!)
-    if (updated?.content) item.chapter = updated
-  }
+  await openEpub(allChapters.value[idx + 1].chapterId)
 }
 </script>
 

@@ -25,6 +25,8 @@ export const useReaderStore = defineStore('reader', () => {
                 if (!service) throw new Error('Service source introuvable')
                 const content = await service.getChapterContent(chapterRecord.url)
                 chapterHtml.value = content.html
+                chapterRecord.content = content.html
+                await db.chapters.update(chapterRecord.id!, { content: content.html })
             }
 
             // Marquer comme lu

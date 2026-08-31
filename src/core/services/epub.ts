@@ -88,6 +88,11 @@ function chapterFileName(index: number) {
     return `chapter-${String(index + 1).padStart(4, '0')}.xhtml`
 }
 
+export function getEpubChapterHref(chapterId: string, chapters: ChapterRecord[]) {
+    const index = chapters.filter(chapter => chapter.content).findIndex(chapter => chapter.chapterId === chapterId)
+    return index === -1 ? null : chapterFileName(index)
+}
+
 function chapterDocument(chapter: ChapterRecord) {
     const document = new DOMParser().parseFromString('<!DOCTYPE html><html><body></body></html>', 'text/html')
     const content = document.createElement('div')

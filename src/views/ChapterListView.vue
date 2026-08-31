@@ -25,6 +25,11 @@
           <span v-else>💾 Télécharger</span>
         </button>
         <button
+          class="btn-download"
+          :disabled="refreshing || downloading || exporting"
+          @click="exportBook"
+        >{{ exporting ? 'Création EPUB…' : allOffline ? '↻ Mettre à jour EPUB' : '📖 Exporter EPUB' }}</button>
+        <button
           class="btn-mark-read"
           :disabled="refreshing || downloading || unreadCount === 0"
           @click="markAllRead"
@@ -83,6 +88,7 @@ const chapters = ref<ChapterRecord[]>([])
 const loading = ref(true)
 const refreshing = ref(false)
 const downloading = ref(false)
+const exporting = ref(false)
 const error = ref<string | null>(null)
 
 const allOffline = computed(() =>
@@ -131,6 +137,20 @@ async function startDownload() {
 
 function cancelDownload() {
   library.abortDownload()
+}
+
+async function exportBook() {
+  if (!fiction.value) return
+  exporting.value = true
+  error.value = null
+  try {
+    await library.exportEpub(fiction.value)
+    chapters.value = await library.getChapters(props.fictionDbId)
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    exporting.value = false
+  }
 }
 
 async function refresh() {

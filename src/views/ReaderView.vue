@@ -184,7 +184,6 @@ async function appendChapter(ch: ChapterRecord) {
   const idx = loadedChapters.value.length - 1
   try {
     loadedChapters.value[idx].html = await fetchHtml(ch)
-    await markRead(ch)
   } catch (e: unknown) {
     loadedChapters.value[idx].error = e instanceof Error ? e.message : String(e)
   } finally {
@@ -229,6 +228,7 @@ function observeChapterHeadings() {
           const idx = allChapters.value.findIndex(c => c.chapterId === id)
           if (idx !== -1) {
             currentChapterIdx.value = idx
+            void markRead(allChapters.value[idx])
             router.replace(`/fiction/${props.fictionDbId}/read/${id}`)
           }
         }
@@ -261,6 +261,7 @@ onMounted(async () => {
   currentChapterIdx.value = startIdx
 
   await appendChapter(allChapters.value[startIdx])
+  await markRead(allChapters.value[startIdx])
 
   // Restaurer position scroll
   if (fiction.value.lastReadChapterId === props.chapterId && fiction.value.lastReadScrollY) {
@@ -328,6 +329,8 @@ async function goPrev() {
   if (!scrollToChapterId(ch.chapterId)) {
     // Sinon navigation classique
     router.push(`/fiction/${props.fictionDbId}/read/${ch.chapterId}`)
+  } else {
+    await markRead(ch)
   }
 }
 
@@ -340,6 +343,7 @@ async function goNext() {
   if (!isLoaded) await appendChapter(ch)
   await nextTick()
   scrollToChapterId(ch.chapterId)
+  await markRead(ch)
 }
 
 async function downloadCurrent() {

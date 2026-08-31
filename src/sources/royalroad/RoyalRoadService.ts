@@ -33,7 +33,7 @@ export class RoyalRoadService implements ISourceService {
 
     // ── HTTP + DOM ─────────────────────────────────────────────────────────────
 
-    /** Tente d'abord un fetch direct, bascule sur corsproxy.io si CORS bloqué. */
+    /** Tente d'abord un fetch direct, bascule sur corsproxy.io si le navigateur bloque le CORS. */
     private async fetchDoc(url: string, attempt = 1): Promise<Document> {
         let html: string
 
@@ -46,22 +46,34 @@ export class RoyalRoadService implements ISourceService {
                 }
                 throw new Error(`Fetch échoué [429] : ${url}`)
             }
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            if (!res.ok) throw new Error(`Royal Road a répondu [${res.status}] : ${url}`)
             html = await res.text()
         } catch (e: unknown) {
-            if (e instanceof Error && e.message.startsWith('Fetch échoué')) throw e
-            // RoyalRoad bloque le CORS navigateur → proxy public gratuit
-            const proxied = `https://corsproxy.io/?url=${encodeURIComponent(url)}`
-            const res = await fetch(proxied)
-            if (res.status === 429) {
-                if (attempt <= 3) {
-                    await new Promise(r => setTimeout(r, 2000 * attempt))
-                    return this.fetchDoc(url, attempt + 1)
+            if (e instanceof Error && (e.message.startsWith('Fetch échoué') || e.message.startsWith('Royal Road a répondu'))) throw e
+            // Royal Road bloque le CORS navigateur; les proxys publics peuvent être temporairement bloqués.
+            const proxies = [
+                `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+                `https://corsproxy.org/?${encodeURIComponent(url)}`,
+            ]
+            for (const proxied of proxies) {
+                try {
+                    const res = await fetch(proxied)
+                    if (res.status === 429) {
+                        if (attempt <= 3) {
+                            await new Promise(r => setTimeout(r, 2000 * attempt))
+                            return this.fetchDoc(url, attempt + 1)
+                        }
+                        throw new Error(`Fetch échoué [429] : ${url}`)
+                    }
+                    if (res.ok) {
+                        html = await res.text()
+                        return new DOMParser().parseFromString(html, 'text/html')
+                    }
+                } catch (proxyError) {
+                    if (proxyError instanceof Error && proxyError.message.startsWith('Fetch échoué')) throw proxyError
                 }
-                throw new Error(`Fetch échoué [429] : ${url}`)
             }
-            if (!res.ok) throw new Error(`Fetch échoué [${res.status}] : ${url}`)
-            html = await res.text()
+            throw new Error(`Fetch échoué via les proxys CORS : ${url}`)
         }
 
         return new DOMParser().parseFromString(html, 'text/html')

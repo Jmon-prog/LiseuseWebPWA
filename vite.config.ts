@@ -5,6 +5,9 @@ import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
   base: '/LiseuseWebPWA/',
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? 'dev'),
+  },
   server: {
     host: true,
   },

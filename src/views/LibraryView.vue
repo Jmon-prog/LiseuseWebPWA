@@ -45,6 +45,8 @@
       @close="showModal = false"
       @added="library.loadLibrary()"
     />
+
+    <footer class="library__version">Version application {{ appVersion }}</footer>
   </div>
 </template>
 
@@ -59,6 +61,7 @@ import AddFictionModal from '@/components/AddFictionModal.vue'
 const router = useRouter()
 const library = useLibraryStore()
 const showModal = ref(false)
+const appVersion = __APP_VERSION__
 
 onMounted(() => library.loadLibrary())
 
@@ -187,6 +190,13 @@ function confirmRemove(fiction: FictionRecord) {
   cursor: pointer;
   padding: 4px;
   border-radius: 6px;
+}
+.library__version {
+  margin-top: 28px;
+  padding-bottom: 8px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
 }
 </style>
 

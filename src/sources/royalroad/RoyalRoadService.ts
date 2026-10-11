@@ -30,6 +30,35 @@ function sanitizeChapterHtml(content: Element) {
     })
 }
 
+const CHAPTER_ROW_SELECTOR = '#chapters tr.chapter-row'
+
+// Royal Road injecte des spans anti-piratage masqués via une classe aléatoire définie dans un <style>.
+function removeHiddenWatermarks(doc: Document, content: Element) {
+    const hiddenClasses = new Set<string>()
+    doc.querySelectorAll('style').forEach(style => {
+        for (const m of (style.textContent ?? '').matchAll(/\.([\w-]+)\s*\{[^}]*display\s*:\s*none/g)) hiddenClasses.add(m[1])
+    })
+    hiddenClasses.forEach(cls => content.querySelectorAll(`.${CSS.escape(cls)}`).forEach(el => el.remove()))
+}
+
+function parseChapterRows(doc: Document): ChapterMeta[] {
+    const chapters: ChapterMeta[] = []
+    doc.querySelectorAll(CHAPTER_ROW_SELECTOR).forEach(row => {
+        const href = row.getAttribute('data-url') ?? row.querySelector('a')?.getAttribute('href') ?? ''
+        const cm = href.match(/\/chapter\/(\d+)\/([\w-]+)/)
+        if (!cm) return
+        chapters.push({
+            chapterId: cm[1],
+            slug: cm[2],
+            title: row.querySelector('td a')?.textContent?.trim() ?? '',
+            url: new URL(href, BASE_URL).href,
+            publishedAt: row.querySelector('time')?.getAttribute('datetime') ?? '',
+            order: chapters.length,
+        })
+    })
+    return chapters
+}
+
 export class RoyalRoadService implements ISourceService {
     readonly sourceId = 'royalroad'
     readonly sourceName = 'Royal Road'
@@ -109,7 +138,7 @@ export class RoyalRoadService implements ISourceService {
             ?.getAttribute('content') ?? ''
         const coverUrl = ogImage || this.buildCoverUrl(ids.fictionId, ids.slug)
 
-        const rows = doc.querySelectorAll('#chapters table tbody tr')
+        const totalChapters = doc.querySelectorAll(CHAPTER_ROW_SELECTOR).length
 
         return {
             fictionId: ids.fictionId,
@@ -120,58 +149,14 @@ export class RoyalRoadService implements ISourceService {
             tags,
             coverUrl,
             url: fictionUrl,
-            totalChapters: rows.length,
+            totalChapters,
         }
     }
 
     async getChapterList(fictionUrl: string, onProgress?: (found: number, page: number) => void): Promise<ChapterMeta[]> {
-        const chapters: ChapterMeta[] = []
-        let page = 1
-        let hasMore = true
-
-        while (hasMore) {
-            const url = page === 1 ? fictionUrl : `${fictionUrl}?page=${page}`
-            const doc = await this.fetchDoc(url)
-
-            // Sélecteur flexible : toutes les <a> pointant vers un chapitre dans la TOC
-            const links = Array.from(
-                doc.querySelectorAll<HTMLAnchorElement>('a[href*="/chapter/"]')
-            ).filter(a => /\/chapter\/\d+\/[\w-]+/.test(a.getAttribute('href') ?? ''))
-
-            if (links.length === 0) break
-
-            links.forEach((link, i) => {
-                const href = link.getAttribute('href') ?? ''
-                const cm = href.match(/\/chapter\/(\d+)\/([\w-]+)/)
-                if (!cm) return
-                // Éviter les doublons (prev/next links dans le reader)
-                if (chapters.some(c => c.chapterId === cm[1])) return
-                // Date : chercher un <time> dans le parent <tr> le cas échéant
-                const row = link.closest('tr')
-                const datetime = row?.querySelector('time')?.getAttribute('datetime') ?? ''
-                chapters.push({
-                    chapterId: cm[1],
-                    slug: cm[2],
-                    title: link.textContent?.trim() ?? '',
-                    url: `${BASE_URL}${href}`,
-                    publishedAt: datetime,
-                    order: (page - 1) * 100 + i,
-                })
-            })
-
-            onProgress?.(chapters.length, page)
-
-            // Vérifier si une vraie page suivante existe dans la pagination
-            const nextLink = doc.querySelector(
-                'ul.pagination li.next:not(.disabled) a, ul.pagination a[aria-label="Next"], ul.pagination a[rel="next"]'
-            )
-            hasMore = nextLink !== null && page < 200
-            page++
-
-            // Pause pour éviter le rate-limiting (429)
-            if (hasMore) await new Promise(r => setTimeout(r, 600))
-        }
-
+        // Tous les chapitres sont sur une seule page (pagination côté client).
+        const chapters = parseChapterRows(await this.fetchDoc(fictionUrl))
+        onProgress?.(chapters.length, 1)
         return chapters
     }
 
@@ -184,52 +169,33 @@ export class RoyalRoadService implements ISourceService {
 
         // Supprimer les publicités
         contentEl.querySelectorAll('.advert, [class*="advert"], .ad-container').forEach(el => el.remove())
+        removeHiddenWatermarks(doc, contentEl)
         sanitizeChapterHtml(contentEl)
         const html = contentEl.innerHTML
 
         const chapterMatch = chapterUrl.match(/\/chapter\/(\d+)\//)
 
-        const prevEl = (doc.querySelector('a[rel="prev"]')
-            ?? Array.from(doc.querySelectorAll('a[href*="/chapter/"]'))
-                .find(a => a.textContent?.toLowerCase().includes('previous'))) as HTMLAnchorElement | undefined
+        // <link rel="prev|next"> dans le <head>, sinon boutons .nav-buttons (absents/désactivés aux extrémités).
+        const navHref = (rel: 'prev' | 'next', label: string) =>
+            doc.querySelector(`link[rel="${rel}"]`)?.getAttribute('href')
+            ?? Array.from(doc.querySelectorAll<HTMLAnchorElement>('.nav-buttons a[href*="/chapter/"]'))
+                .find(a => a.textContent?.replace(/\s+/g, ' ').toLowerCase().includes(label))?.getAttribute('href')
 
-        const nextEl = (doc.querySelector('a[rel="next"]')
-            ?? Array.from(doc.querySelectorAll('a[href*="/chapter/"]'))
-                .find(a => a.textContent?.toLowerCase().includes('next chapter'))) as HTMLAnchorElement | undefined
+        const prevHref = navHref('prev', 'previous')
+        const nextHref = navHref('next', 'next')
 
         return {
             chapterId: chapterMatch?.[1] ?? '',
             title,
             html,
-            prevUrl: prevEl?.href ? new URL(prevEl.href, BASE_URL).href : undefined,
-            nextUrl: nextEl?.href ? new URL(nextEl.href, BASE_URL).href : undefined,
+            prevUrl: prevHref ? new URL(prevHref, BASE_URL).href : undefined,
+            nextUrl: nextHref ? new URL(nextHref, BASE_URL).href : undefined,
         }
     }
 
     async checkNewChapters(fictionUrl: string, lastKnownChapterId: string): Promise<ChapterMeta[]> {
-        const doc = await this.fetchDoc(fictionUrl)
-        const rows = Array.from(doc.querySelectorAll('#chapters table tbody tr'))
-        const newChapters: ChapterMeta[] = []
-
-        for (let i = rows.length - 1; i >= 0; i--) {
-            const row = rows[i]
-            const link = row.querySelector('td:first-child a') as HTMLAnchorElement | null
-            if (!link) continue
-            const href = link.getAttribute('href') ?? ''
-            const cm = href.match(/\/chapter\/(\d+)\/([\w-]+)/)
-            if (!cm) continue
-            if (cm[1] === lastKnownChapterId) break
-            const datetime = row.querySelector('td:last-child time')?.getAttribute('datetime') ?? ''
-            newChapters.unshift({
-                chapterId: cm[1],
-                slug: cm[2],
-                title: link.textContent?.trim() ?? '',
-                url: `${BASE_URL}${href}`,
-                publishedAt: datetime,
-                order: i,
-            })
-        }
-
-        return newChapters
+        const chapters = parseChapterRows(await this.fetchDoc(fictionUrl))
+        const lastIndex = chapters.findIndex(c => c.chapterId === lastKnownChapterId)
+        return lastIndex === -1 ? chapters : chapters.slice(lastIndex + 1)
     }
 }

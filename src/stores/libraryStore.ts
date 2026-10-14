@@ -90,8 +90,16 @@ export const useLibraryStore = defineStore('library', () => {
             .where('fictionDbId').equals(fiction.id!)
             .sortBy('order')
 
-        const localIds = new Set(localChapters.map(c => c.chapterId))
-        const newOnes = remoteChapters.filter(c => !localIds.has(c.chapterId))
+        const localById = new Map(localChapters.map(chapter => [chapter.chapterId, chapter]))
+        const orderUpdates = remoteChapters.flatMap(chapter => {
+            const localChapter = localById.get(chapter.chapterId)
+            return localChapter?.id !== undefined && localChapter.order !== chapter.order
+                ? [{ key: localChapter.id, changes: { order: chapter.order } }]
+                : []
+        })
+        if (orderUpdates.length > 0) await db.chapters.bulkUpdate(orderUpdates)
+
+        const newOnes = remoteChapters.filter(c => !localById.has(c.chapterId))
 
         if (newOnes.length > 0) {
             await db.chapters.bulkAdd(

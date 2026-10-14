@@ -80,12 +80,13 @@
         :class="{ 'chapter-item--read': ch.isRead, 'chapter-item--announcement': isAnnouncement(ch.title, ch.slug) }"
       >
         <button class="chapter-item__button" @click="openChapter(ch)">
-          <span class="chapter-item__title">{{ ch.title }}</span>
           <span
-            v-if="hasMultipleBooks && ch.volumeId"
-            class="chapter-item__book"
-            :title="`Livre ${bookLabels.get(ch.volumeId)?.slice(1) ?? ''}`"
-          >{{ bookLabels.get(ch.volumeId) }}</span>
+            class="chapter-item__title"
+            :title="`${chapterReference(ch)} ${displayChapterTitle(ch)}`.trim()"
+          >
+            <span v-if="chapterReference(ch)" class="chapter-item__reference">{{ chapterReference(ch) }}</span>
+            <span class="chapter-item__text">{{ displayChapterTitle(ch) }}</span>
+          </span>
           <span v-if="isAnnouncement(ch.title, ch.slug)" class="chapter-item__kind">Annonce</span>
           <span class="chapter-item__date">{{ formatDate(ch.publishedAt) }}</span>
           <span v-if="ch.content" class="chapter-item__offline" title="Disponible hors ligne">📥</span>
@@ -133,9 +134,35 @@ const allOffline = computed(() =>
 const sortKey = `chapter-sort-desc-${props.fictionDbId}`
 const sortDesc = ref(localStorage.getItem(sortKey) === 'true')
 watch(sortDesc, v => localStorage.setItem(sortKey, String(v)))
+function chapterNumber(title: string): number | null {
+  const match = title.match(/\b(?:chapter|chapitre)\s*(\d+(?:[.,]\d+)?)/i)
+    ?? title.match(/^\s*(\d+(?:[.,]\d+)?)(?:\D|$)/)
+  return match ? Number(match[1].replace(',', '.')) : null
+}
+function chapterReference(chapter: ChapterRecord): string {
+  if (!hasMultipleBooks.value || !chapter.volumeId) return ''
+  const book = bookLabels.value.get(chapter.volumeId)
+  if (!book) return ''
+  const number = chapterNumber(chapter.title)
+  return number === null ? book : `${book}-C${number}`
+}
+function displayChapterTitle(chapter: ChapterRecord): string {
+  if (!chapterReference(chapter) || isAnnouncement(chapter.title, chapter.slug)) return chapter.title
+  const title = chapter.title.replace(/^\s*(?:chapter|chapitre)\s*\d+(?:[.,]\d+)?\s*[-–—:.)]?\s*/i, '')
+  return title || chapter.title
+}
 const sortedChapters = computed(() =>
   [...chapters.value].sort((a, b) => {
-    const comparison = a.order - b.order
+    const aBook = a.volumeId ? Number(bookLabels.value.get(a.volumeId)?.slice(1)) : null
+    const bBook = b.volumeId ? Number(bookLabels.value.get(b.volumeId)?.slice(1)) : null
+    let comparison = a.order - b.order
+    if (aBook !== null && bBook !== null && aBook !== bBook) {
+      comparison = aBook - bBook
+    } else if (aBook === bBook) {
+      const aNumber = chapterNumber(a.title)
+      const bNumber = chapterNumber(b.title)
+      if (aNumber !== null && bNumber !== null) comparison = aNumber - bNumber
+    }
     return sortDesc.value ? -comparison : comparison
   })
 )
@@ -427,7 +454,8 @@ function formatDate(iso: string): string {
   background: var(--color-surface-hover);
 }
 .chapter-item__button {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   align-items: center;
   gap: 10px;
   width: 100%;
@@ -446,8 +474,18 @@ function formatDate(iso: string): string {
   border-left: 3px solid var(--color-accent);
 }
 .chapter-item__title {
-  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
   font-size: 0.9rem;
+}
+.chapter-item__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chapter-item__kind {
   flex-shrink: 0;
@@ -458,16 +496,12 @@ function formatDate(iso: string): string {
   font-size: 0.7rem;
   font-weight: 600;
 }
-.chapter-item__book {
+.chapter-item__reference {
   flex-shrink: 0;
-  min-width: 30px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: var(--color-surface-hover);
-  color: var(--color-text-muted);
+  color: var(--color-accent);
   font-size: 0.7rem;
   font-weight: 700;
-  text-align: center;
+  white-space: nowrap;
 }
 .chapter-item__date {
   font-size: 0.75rem;
@@ -476,5 +510,18 @@ function formatDate(iso: string): string {
 }
 .chapter-item__offline {
   font-size: 0.8rem;
+}
+@media (max-width: 520px) {
+  .chapter-item__button {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'title title title'
+      'kind date offline';
+    gap: 6px 8px;
+  }
+  .chapter-item__title { grid-area: title; }
+  .chapter-item__kind { grid-area: kind; }
+  .chapter-item__date { grid-area: date; justify-self: end; }
+  .chapter-item__offline { grid-area: offline; }
 }
 </style>

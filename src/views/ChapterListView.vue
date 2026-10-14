@@ -30,8 +30,8 @@
           @click="markAllRead"
           title="Marquer tout comme lu"
         >✓ Tout lu</button>
-        <button class="btn-sort" @click="sortDesc = !sortDesc" :title="sortDesc ? 'Plus récent en premier' : 'Plus ancien en premier'">
-          {{ sortDesc ? '↓ Récent' : '↑ Ancien' }}
+        <button class="btn-sort" @click="sortDesc = !sortDesc" :title="sortDesc ? 'Numéro croissant' : 'Numéro décroissant'">
+          {{ sortDesc ? '↓ N°' : '↑ N°' }}
         </button>
       </div>
     </header>
@@ -93,8 +93,18 @@ const allOffline = computed(() =>
 const sortKey = `chapter-sort-desc-${props.fictionDbId}`
 const sortDesc = ref(localStorage.getItem(sortKey) === 'true')
 watch(sortDesc, v => localStorage.setItem(sortKey, String(v)))
+function chapterNumber(title: string): number | null {
+  const match = title.match(/\b(?:chapter|chapitre)\s*(\d+(?:[.,]\d+)?)/i)
+    ?? title.match(/^\s*(\d+(?:[.,]\d+)?)(?:\D|$)/)
+  return match ? Number(match[1].replace(',', '.')) : null
+}
 const sortedChapters = computed(() =>
-  [...chapters.value].sort((a, b) => sortDesc.value ? b.order - a.order : a.order - b.order)
+  [...chapters.value].sort((a, b) => {
+    const aNumber = chapterNumber(a.title) ?? a.order
+    const bNumber = chapterNumber(b.title) ?? b.order
+    const comparison = aNumber - bNumber
+    return sortDesc.value ? -comparison : comparison
+  })
 )
 const unreadCount = computed(() => chapters.value.filter(c => !c.isRead).length)
 

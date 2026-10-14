@@ -1,6 +1,15 @@
 <template>
   <div class="library">
     <header class="library__header">
+      <div class="library__search">
+        <input
+          v-model="searchQuery"
+          type="search"
+          aria-label="Rechercher une fiction par titre, auteur ou tag"
+          placeholder="Rechercher une fiction…"
+        />
+      </div>
+
       <h1 class="library__title">Ma bibliothèque</h1>
       <div class="library__actions">
         <button class="btn-icon" title="Paramètres" @click="router.push('/settings')">⚙️</button>
@@ -29,7 +38,10 @@
         </button>
       </div>
 
-      <div class="library__grid">
+      <p v-if="sortedFictions.length === 0" class="library__no-results">
+        Aucune fiction ne correspond à cette recherche.
+      </p>
+      <div v-else class="library__grid">
         <FictionCard
           v-for="fiction in sortedFictions"
           :key="fiction.id"
@@ -61,6 +73,7 @@ import AddFictionModal from '@/components/AddFictionModal.vue'
 const router = useRouter()
 const library = useLibraryStore()
 const showModal = ref(false)
+const searchQuery = ref('')
 const appVersion = __APP_VERSION__
 
 onMounted(() => library.loadLibrary())
@@ -77,8 +90,15 @@ const sortOptions: { value: SortKey; label: string }[] = [
 const sortKey = ref<SortKey>('unread')
 const sortAsc = ref(false)
 
+function normalizeSearch(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr')
+}
+
 const sortedFictions = computed(() => {
-  const list = [...library.fictions]
+  const query = normalizeSearch(searchQuery.value.trim())
+  const list = library.fictions.filter(fiction =>
+    normalizeSearch([fiction.title, fiction.author ?? '', ...(fiction.tags ?? [])].join(' ')).includes(query)
+  )
   list.sort((a, b) => {
     let cmp = 0
     if (sortKey.value === 'unread')  cmp = b.unreadCount - a.unreadCount || b.lastUpdatedAt - a.lastUpdatedAt
@@ -117,6 +137,24 @@ function confirmRemove(fiction: FictionRecord) {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+.library__search {
+  margin-bottom: 12px;
+}
+.library__search input {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.library__no-results {
+  padding: 32px 12px;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 .library__toolbar {
   display: flex;

@@ -45,9 +45,27 @@
       <span v-else>Chargement des chapitres…</span>
     </div>
 
-    <ul v-else-if="chapters.length > 0" class="chapter-list__list">
+    <div v-if="!loading && !refreshing && chapters.length > 0" class="chapter-list__filters">
+      <input
+        v-model="searchQuery"
+        type="search"
+        aria-label="Rechercher un chapitre par titre"
+        placeholder="Rechercher un chapitre…"
+      />
+      <div class="chapter-list__read-filter" role="group" aria-label="Filtrer les chapitres par statut de lecture">
+        <button
+          v-for="option in readFilterOptions"
+          :key="option.value"
+          :class="{ 'is-active': readFilter === option.value }"
+          :aria-pressed="readFilter === option.value"
+          @click="readFilter = option.value"
+        >{{ option.label }} <span>{{ option.count }}</span></button>
+      </div>
+    </div>
+
+    <ul v-if="!loading && !refreshing && filteredChapters.length > 0" class="chapter-list__list">
       <li
-        v-for="ch in sortedChapters"
+        v-for="ch in filteredChapters"
         :key="ch.id"
         class="chapter-item"
         :class="{ 'chapter-item--read': ch.isRead }"
@@ -60,8 +78,11 @@
       </li>
     </ul>
 
-    <div v-else-if="!loading && !refreshing" class="chapter-list__empty">
+    <div v-if="!loading && !refreshing && chapters.length === 0" class="chapter-list__empty">
       Aucun chapitre trouvé. Vérifiez votre connexion et réessayez.
+    </div>
+    <div v-else-if="!loading && !refreshing && filteredChapters.length === 0" class="chapter-list__empty">
+      Aucun chapitre ne correspond à ces filtres.
     </div>
   </div>
 </template>
@@ -85,6 +106,8 @@ const loading = ref(true)
 const refreshing = ref(false)
 const downloading = ref(false)
 const error = ref<string | null>(null)
+const searchQuery = ref('')
+const readFilter = ref<'all' | 'unread' | 'read'>('all')
 
 const allOffline = computed(() =>
   chapters.value.length > 0 && chapters.value.every(c => !!c.content)
@@ -107,6 +130,20 @@ const sortedChapters = computed(() =>
   })
 )
 const unreadCount = computed(() => chapters.value.filter(c => !c.isRead).length)
+const readFilterOptions = computed(() => [
+  { value: 'all' as const, label: 'Tous', count: chapters.value.length },
+  { value: 'unread' as const, label: 'Non lus', count: unreadCount.value },
+  { value: 'read' as const, label: 'Lus', count: chapters.value.length - unreadCount.value },
+])
+const filteredChapters = computed(() => {
+  const query = searchQuery.value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr')
+  return sortedChapters.value.filter(chapter => {
+    const title = chapter.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr')
+    const matchesReadStatus = readFilter.value === 'all'
+      || (readFilter.value === 'read' ? chapter.isRead : !chapter.isRead)
+    return title.includes(query) && matchesReadStatus
+  })
+})
 
 onMounted(async () => {
   fiction.value = await db.fictions.get(props.fictionDbId) ?? null
@@ -224,6 +261,45 @@ function formatDate(iso: string): string {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.chapter-list__filters {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.chapter-list__filters input {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.chapter-list__read-filter {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+.chapter-list__read-filter button {
+  min-height: 38px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chapter-list__read-filter button.is-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+.chapter-list__read-filter span {
+  margin-left: 4px;
+  opacity: 0.8;
 }
 .btn-refresh {
   font-size: 0.85rem;

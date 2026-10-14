@@ -35,6 +35,15 @@
 
       <button
         class="reader__nav-btn"
+        :disabled="loading || !chapter"
+        :aria-label="chapter?.isRead ? 'Marquer comme non lu' : 'Marquer comme lu'"
+        :aria-pressed="!!chapter?.isRead"
+        :title="chapter?.isRead ? 'Marquer comme non lu' : 'Marquer comme lu'"
+        @click="toggleChapterRead"
+      >{{ chapter?.isRead ? '✓ Lu' : '□ Lu' }}</button>
+
+      <button
+        class="reader__nav-btn"
         :disabled="currentChapterIdx >= allChapters.length - 1 || loading"
         @click="goNext"
       >Suivant →</button>
@@ -94,6 +103,7 @@ const readerEl = ref<HTMLElement | null>(null)
 const showPanel = ref(false)
 const navHidden = ref(false)
 const lastScrollY = ref(0)
+let savePositionTimer: ReturnType<typeof setTimeout> | undefined
 
 const fiction = ref<FictionRecord | null>(null)
 const allChapters = ref<ChapterRecord[]>([])
@@ -124,11 +134,15 @@ async function loadChapter(chapterId: string, restorePosition = false) {
     chapterHtml.value = await reader.openChapter(f, target)
     currentChapterIdx.value = targetIndex
     await nextTick()
-    readerEl.value?.scrollTo({ top: restorePosition ? f.lastReadScrollY ?? 0 : 0 })
+    const savedPosition = target.readingPosition ?? (restorePosition ? f.lastReadScrollY ?? 0 : 0)
+    readerEl.value?.scrollTo({ top: savedPosition })
+    lastScrollY.value = savedPosition
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+    await nextTick()
+    markReadIfAtEnd()
   }
 }
 
@@ -149,12 +163,13 @@ onMounted(async () => {
 watch(() => settings.theme, () => settings.applyTheme())
 
 watch(() => props.chapterId, async chapterId => {
-  if (chapterId !== chapter.value?.chapterId) await loadChapter(chapterId)
+  if (chapterId !== chapter.value?.chapterId) {
+    await saveCurrentPosition()
+    await loadChapter(chapterId)
+  }
 })
 
-onBeforeUnmount(() => {
-  if (fiction.value?.id && readerEl.value) void reader.saveScrollPosition(fiction.value.id, readerEl.value.scrollTop)
-})
+onBeforeUnmount(() => { void saveCurrentPosition() })
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -171,8 +186,40 @@ async function goNext() {
 }
 
 async function goToChapter(chapterId: string) {
-  if (fiction.value?.id && readerEl.value) await reader.saveScrollPosition(fiction.value.id, readerEl.value.scrollTop)
+  await saveCurrentPosition()
   await router.push(`/fiction/${props.fictionDbId}/read/${chapterId}`)
+}
+
+async function saveCurrentPosition() {
+  if (savePositionTimer) clearTimeout(savePositionTimer)
+  savePositionTimer = undefined
+  const fictionId = fiction.value?.id
+  const currentChapter = chapter.value
+  const element = readerEl.value
+  if (fictionId === undefined || !currentChapter?.id || !element) return
+  await reader.saveScrollPosition(fictionId, currentChapter, element.scrollTop)
+}
+
+async function toggleChapterRead() {
+  const fictionId = fiction.value?.id
+  const currentChapter = chapter.value
+  if (fictionId === undefined || !currentChapter) return
+  try {
+    await reader.setChapterRead(fictionId, currentChapter, !currentChapter.isRead)
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+function markReadIfAtEnd() {
+  const fictionId = fiction.value?.id
+  const currentChapter = chapter.value
+  const element = readerEl.value
+  if (loading.value || error.value || fictionId === undefined || !currentChapter || currentChapter.isRead || !element) return
+  if (element.scrollTop + element.clientHeight < element.scrollHeight - 80) return
+  void reader.setChapterRead(fictionId, currentChapter, true).catch((e: unknown) => {
+    error.value = e instanceof Error ? e.message : String(e)
+  })
 }
 
 function onScroll() {
@@ -180,6 +227,17 @@ function onScroll() {
   if (!element) return
   navHidden.value = element.scrollTop > lastScrollY.value && element.scrollTop > 60
   lastScrollY.value = element.scrollTop
+  if (!loading.value && chapter.value && fiction.value?.id !== undefined) {
+    const fictionId = fiction.value.id
+    const currentChapter = chapter.value
+    const scrollY = element.scrollTop
+    if (savePositionTimer) clearTimeout(savePositionTimer)
+    savePositionTimer = setTimeout(() => {
+      savePositionTimer = undefined
+      void reader.saveScrollPosition(fictionId, currentChapter, scrollY)
+    }, 500)
+    markReadIfAtEnd()
+  }
 }
 </script>
 
@@ -263,6 +321,7 @@ function onScroll() {
   bottom: 0;
   display: flex;
   justify-content: space-between;
+  gap: 4px;
   padding: 12px 16px max(12px, env(safe-area-inset-bottom));
   background: var(--reader-bg);
   border-top: 1px solid var(--color-border);

@@ -1,0 +1,60 @@
+const PRODUCTION_ORIGIN = 'https://jmon-prog.github.io'
+const LOCAL_DEV_ORIGIN = /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/
+const ROYAL_ROAD = 'www.royalroad.com'
+
+export default {
+  async fetch(request) {
+    const origin = request.headers.get('Origin') ?? ''
+    const isAllowedOrigin = origin === PRODUCTION_ORIGIN || LOCAL_DEV_ORIGIN.test(origin)
+    const cors = {
+      ...(isAllowedOrigin ? { 'Access-Control-Allow-Origin': origin } : {}),
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Vary': 'Origin',
+    }
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: cors })
+    }
+
+    if (request.method !== 'GET') {
+      return new Response('Method not allowed', { status: 405, headers: cors })
+    }
+
+    const target = new URL(request.url).searchParams.get('url')
+    if (!target) {
+      return new Response('Missing url', { status: 400, headers: cors })
+    }
+
+    let destination
+    try {
+      destination = new URL(target)
+    } catch {
+      return new Response('Invalid url', { status: 400, headers: cors })
+    }
+
+    if (
+      destination.protocol !== 'https:' ||
+      destination.hostname !== ROYAL_ROAD ||
+      !/^\/(fiction|fiction\/chapter)\//.test(destination.pathname)
+    ) {
+      return new Response('Forbidden target', { status: 403, headers: cors })
+    }
+
+    const response = await fetch(destination.toString(), {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+      },
+      cf: { cacheTtl: 300, cacheEverything: true },
+    })
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: {
+        ...cors,
+        'Content-Type': response.headers.get('Content-Type') ?? 'text/html; charset=utf-8',
+      },
+    })
+  },
+}

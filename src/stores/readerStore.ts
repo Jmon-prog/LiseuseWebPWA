@@ -5,14 +5,8 @@ import { resolveService } from '@/sources'
 export const useReaderStore = defineStore('reader', () => {
     async function openChapter(fictionRecord: FictionRecord, chapterRecord: ChapterRecord): Promise<string> {
         await downloadChapter(chapterRecord, fictionRecord)
-        await db.chapters.update(chapterRecord.id!, { isRead: true })
-        const unread = await db.chapters
-            .where('fictionDbId').equals(fictionRecord.id!)
-            .and(chapter => !chapter.isRead)
-            .count()
         await db.fictions.update(fictionRecord.id!, {
             lastReadChapterId: chapterRecord.chapterId,
-            unreadCount: unread,
         })
         return chapterRecord.content!
     }
@@ -26,13 +20,29 @@ export const useReaderStore = defineStore('reader', () => {
         await db.chapters.update(chapterRecord.id!, { content: content.html })
     }
 
-    async function saveScrollPosition(fictionId: number, scrollY: number) {
-        await db.fictions.update(fictionId, { lastReadScrollY: scrollY })
+    async function saveScrollPosition(fictionId: number, chapter: ChapterRecord, scrollY: number) {
+        await db.chapters.update(chapter.id!, { readingPosition: scrollY })
+        await db.fictions.update(fictionId, {
+            lastReadChapterId: chapter.chapterId,
+            lastReadScrollY: scrollY,
+        })
+    }
+
+    async function setChapterRead(fictionId: number, chapter: ChapterRecord, isRead: boolean) {
+        if (chapter.isRead === isRead) return
+        await db.chapters.update(chapter.id!, { isRead })
+        chapter.isRead = isRead
+        const unreadCount = await db.chapters
+            .where('fictionDbId').equals(fictionId)
+            .and(record => !record.isRead)
+            .count()
+        await db.fictions.update(fictionId, { unreadCount })
     }
 
     return {
         openChapter,
         downloadChapter,
         saveScrollPosition,
+        setChapterRead,
     }
 })

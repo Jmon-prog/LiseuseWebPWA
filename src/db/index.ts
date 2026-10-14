@@ -30,6 +30,7 @@ export interface ChapterRecord {
     publishedAt: string
     isRead: boolean
     content?: string // HTML stocké pour lecture hors ligne
+    readingPosition?: number
     order: number
 }
 

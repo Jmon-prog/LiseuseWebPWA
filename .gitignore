@@ -11,7 +11,8 @@ node_modules
 dist
 dist-ssr
 dev-dist
-src/exemple
+src/exemple/*
+!src/exemple/ClouflareWorker.txt
 *.local
 
 # Editor directories and files

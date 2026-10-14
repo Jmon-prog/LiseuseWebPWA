@@ -1,13 +1,24 @@
 <template>
   <div
+    ref="readerRoot"
     class="reader"
+    :class="{ 'reader--immersive': immersiveMode }"
     :data-theme="settings.theme"
     :style="readerStyle"
+    @pointerdown="onReaderPointerDown"
+    @pointerup="onReaderPointerUp"
   >
     <!-- Barre de navigation -->
     <nav class="reader__nav" :class="{ 'reader__nav--hidden': navHidden }">
       <button class="reader__nav-btn" @click="router.back()">←</button>
       <span class="reader__nav-title">{{ currentTitle }}</span>
+      <button
+        class="reader__nav-btn reader__fullscreen-btn"
+        :aria-label="immersiveMode ? 'Quitter le mode plein écran' : 'Mode plein écran'"
+        :aria-pressed="immersiveMode"
+        :title="immersiveMode ? 'Quitter le mode plein écran' : 'Mode plein écran'"
+        @click="toggleImmersiveMode"
+      >⛶</button>
       <button class="reader__nav-btn" @click="showPanel = !showPanel">Aa</button>
     </nav>
 
@@ -99,11 +110,15 @@ const router = useRouter()
 const reader = useReaderStore()
 const settings = useSettingsStore()
 
+const readerRoot = ref<HTMLElement | null>(null)
 const readerEl = ref<HTMLElement | null>(null)
 const showPanel = ref(false)
+const immersiveMode = ref(false)
 const navHidden = ref(false)
 const lastScrollY = ref(0)
 let savePositionTimer: ReturnType<typeof setTimeout> | undefined
+let pointerStart: { x: number; y: number } | undefined
+let lastImmersiveTap: { x: number; y: number; time: number } | undefined
 
 const fiction = ref<FictionRecord | null>(null)
 const allChapters = ref<ChapterRecord[]>([])
@@ -149,6 +164,7 @@ async function loadChapter(chapterId: string, restorePosition = false) {
 // ── Montage ────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
+  document.addEventListener('fullscreenchange', onFullscreenChange)
   try {
     settings.applyTheme()
     fiction.value = await db.fictions.get(props.fictionDbId) ?? null
@@ -169,7 +185,12 @@ watch(() => props.chapterId, async chapterId => {
   }
 })
 
-onBeforeUnmount(() => { void saveCurrentPosition() })
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+  document.body.classList.remove('reader-immersive')
+  if (document.fullscreenElement === readerRoot.value) void document.exitFullscreen()
+  void saveCurrentPosition()
+})
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -189,6 +210,67 @@ async function goToChapter(chapterId: string) {
   await saveCurrentPosition()
   await router.push(`/fiction/${props.fictionDbId}/read/${chapterId}`)
 }
+
+async function toggleImmersiveMode() {
+  if (immersiveMode.value) {
+    await exitImmersiveMode()
+    return
+  }
+
+  showPanel.value = false
+  immersiveMode.value = true
+  try {
+    await readerRoot.value?.requestFullscreen?.()
+  } catch {
+    // Le mode immersif reste utilisable si le navigateur refuse le plein écran natif.
+  }
+}
+
+function onFullscreenChange() {
+  if (!document.fullscreenElement) {
+    immersiveMode.value = false
+    lastImmersiveTap = undefined
+  }
+}
+
+function onReaderPointerDown(event: PointerEvent) {
+  if (!immersiveMode.value || (event.pointerType === 'mouse' && event.button !== 0)) return
+  pointerStart = { x: event.clientX, y: event.clientY }
+}
+
+function onReaderPointerUp(event: PointerEvent) {
+  const start = pointerStart
+  pointerStart = undefined
+  if (!immersiveMode.value || !start) return
+
+  const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12
+  if (moved || !(event.target instanceof Element) || event.target.closest('a, button, input, select, textarea')) {
+    lastImmersiveTap = undefined
+    return
+  }
+
+  const now = performance.now()
+  const isDoubleTap = lastImmersiveTap
+    && now - lastImmersiveTap.time <= 400
+    && Math.hypot(event.clientX - lastImmersiveTap.x, event.clientY - lastImmersiveTap.y) <= 32
+
+  if (isDoubleTap) {
+    lastImmersiveTap = undefined
+    void exitImmersiveMode()
+  } else {
+    lastImmersiveTap = { x: event.clientX, y: event.clientY, time: now }
+  }
+}
+
+async function exitImmersiveMode() {
+  immersiveMode.value = false
+  lastImmersiveTap = undefined
+  if (document.fullscreenElement === readerRoot.value) await document.exitFullscreen()
+}
+
+watch(immersiveMode, enabled => {
+  document.body.classList.toggle('reader-immersive', enabled)
+})
 
 async function saveCurrentPosition() {
   if (savePositionTimer) clearTimeout(savePositionTimer)
@@ -262,6 +344,7 @@ function onScroll() {
   gap: 12px;
   /* Encoche / Dynamic Island */
   padding: max(10px, env(safe-area-inset-top)) 16px 10px;
+  padding-right: 132px;
   background: var(--reader-bg);
   border-bottom: 1px solid var(--color-border);
   z-index: 10;
@@ -270,8 +353,16 @@ function onScroll() {
 .reader__nav--hidden {
   transform: translateY(-100%);
 }
+.reader--immersive .reader__nav,
+.reader--immersive .reader__footer {
+  display: none;
+}
+.reader__fullscreen-btn {
+  display: none;
+}
 .reader__nav-title {
   flex: 1;
+  min-width: 0;
   font-size: 0.9rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -389,5 +480,10 @@ function onScroll() {
 .slide-up-enter-from,
 .slide-up-leave-to {
   transform: translateY(100%);
+}
+@media (max-width: 520px) {
+  .reader__fullscreen-btn {
+    display: inline-flex;
+  }
 }
 </style>

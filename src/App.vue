@@ -111,6 +111,9 @@ async function registerPeriodicSync() {
   font-size: 1.2rem;
   line-height: 1;
 }
+body.reader-immersive .home-button {
+  display: none;
+}
 .reader__nav {
   padding-right: 108px;
 }

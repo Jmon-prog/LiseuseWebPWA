@@ -1,5 +1,15 @@
 <template>
   <RouterView />
+  <RouterLink
+    v-if="route.path !== '/'"
+    to="/"
+    class="home-button"
+    aria-label="Retour à l'accueil"
+    title="Accueil"
+  >
+    <span aria-hidden="true">⌂</span>
+    <span>Accueil</span>
+  </RouterLink>
 
   <!-- Bannière mise à jour PWA -->
   <Transition name="dl-slide">
@@ -42,6 +52,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useLibraryStore } from '@/stores/libraryStore'
@@ -52,6 +63,7 @@ const { needRefresh, updateServiceWorker } = useRegisterSW({
   },
 })
 const dismissedUpdate = ref(false)
+const route = useRoute()
 
 const settings = useSettingsStore()
 const library = useLibraryStore()
@@ -77,6 +89,31 @@ async function registerPeriodicSync() {
 </script>
 
 <style>
+.home-button {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, calc((100vw - 730px) / 2));
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.home-button span:first-child {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.reader__nav {
+  padding-right: 108px;
+}
 .sync-bar {
   position: fixed;
   bottom: 72px;

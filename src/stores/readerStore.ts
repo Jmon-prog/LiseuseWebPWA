@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { db, type FictionRecord, type ChapterRecord } from '@/db'
+import { isAnnouncement } from '@/core/models/chapter'
 import { resolveService } from '@/sources'
 
 export const useReaderStore = defineStore('reader', () => {
@@ -34,7 +35,7 @@ export const useReaderStore = defineStore('reader', () => {
         chapter.isRead = isRead
         const unreadCount = await db.chapters
             .where('fictionDbId').equals(fictionId)
-            .and(record => !record.isRead)
+            .and(record => !record.isRead && !isAnnouncement(record.title, record.slug))
             .count()
         await db.fictions.update(fictionId, { unreadCount })
     }

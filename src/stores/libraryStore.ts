@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { db, type FictionRecord, type ChapterRecord } from '@/db'
+import { isAnnouncement } from '@/core/models/chapter'
 import { resolveService } from '@/sources'
 
 export const useLibraryStore = defineStore('library', () => {
@@ -39,7 +40,7 @@ export const useLibraryStore = defineStore('library', () => {
                 addedAt: now,
                 lastUpdatedAt: now,
                 totalChapters: details.totalChapters,
-                unreadCount: details.totalChapters,
+                unreadCount: 0,
             })
 
             const record = (await db.fictions.get(id))!
@@ -91,13 +92,16 @@ export const useLibraryStore = defineStore('library', () => {
             .sortBy('order')
 
         const localById = new Map(localChapters.map(chapter => [chapter.chapterId, chapter]))
-        const orderUpdates = remoteChapters.flatMap(chapter => {
+        const chapterUpdates = remoteChapters.flatMap(chapter => {
             const localChapter = localById.get(chapter.chapterId)
-            return localChapter?.id !== undefined && localChapter.order !== chapter.order
-                ? [{ key: localChapter.id, changes: { order: chapter.order } }]
-                : []
+            if (localChapter?.id === undefined) return []
+            const changes = {
+                ...(localChapter.order !== chapter.order ? { order: chapter.order } : {}),
+                ...(localChapter.volumeId !== chapter.volumeId ? { volumeId: chapter.volumeId } : {}),
+            }
+            return Object.keys(changes).length > 0 ? [{ key: localChapter.id, changes }] : []
         })
-        if (orderUpdates.length > 0) await db.chapters.bulkUpdate(orderUpdates)
+        if (chapterUpdates.length > 0) await db.chapters.bulkUpdate(chapterUpdates)
 
         const newOnes = remoteChapters.filter(c => !localById.has(c.chapterId))
 
@@ -110,24 +114,30 @@ export const useLibraryStore = defineStore('library', () => {
                     title: c.title,
                     url: c.url,
                     publishedAt: c.publishedAt,
+                    volumeId: c.volumeId,
                     isRead: false,
                     order: c.order,
                 }))
             )
 
-            const unreadCount = await db.chapters
-                .where('fictionDbId').equals(fiction.id!)
-                .and(chapter => !chapter.isRead)
-                .count()
-
-            await db.fictions.update(fiction.id!, {
-                totalChapters: remoteChapters.length,
-                unreadCount,
-                lastUpdatedAt: Date.now(),
-            })
-
-            await loadLibrary()
         }
+
+        const currentChapters = await db.chapters.where('fictionDbId').equals(fiction.id!).toArray()
+        const unreadCount = currentChapters.filter(chapter =>
+            !chapter.isRead && !isAnnouncement(chapter.title, chapter.slug)
+        ).length
+        const fictionChanged = newOnes.length > 0
+            || chapterUpdates.length > 0
+            || unreadCount !== fiction.unreadCount
+            || remoteChapters.length !== fiction.totalChapters
+
+        await db.fictions.update(fiction.id!, {
+            totalChapters: remoteChapters.length,
+            unreadCount,
+            ...(newOnes.length > 0 ? { lastUpdatedAt: Date.now() } : {}),
+        })
+
+        if (fictionChanged) await loadLibrary()
 
         return newOnes.length
     }

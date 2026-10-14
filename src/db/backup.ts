@@ -66,6 +66,7 @@ function isChapterRecord(value: unknown): value is ChapterRecord {
         && typeof value.title === 'string'
         && typeof value.url === 'string'
         && typeof value.publishedAt === 'string'
+        && (value.volumeId === undefined || typeof value.volumeId === 'string')
         && typeof value.isRead === 'boolean'
         && (value.content === undefined || typeof value.content === 'string')
         && (value.readingPosition === undefined || isFiniteNumber(value.readingPosition))

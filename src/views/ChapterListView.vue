@@ -30,8 +30,8 @@
           @click="markAllRead"
           title="Marquer tout comme lu"
         >✓ Tout lu</button>
-        <button class="btn-sort" @click="sortDesc = !sortDesc" :title="sortDesc ? 'Numéro croissant' : 'Numéro décroissant'">
-          {{ sortDesc ? '↓ N°' : '↑ N°' }}
+        <button class="btn-sort" @click="sortDesc = !sortDesc" :title="sortDesc ? 'Du plus ancien au plus récent' : 'Du plus récent au plus ancien'">
+          {{ sortDesc ? '↓ Récent' : '↑ Ancien' }}
         </button>
       </div>
     </header>
@@ -52,7 +52,16 @@
         aria-label="Rechercher un chapitre par titre"
         placeholder="Rechercher un chapitre…"
       />
-      <div class="chapter-list__read-filter" role="group" aria-label="Filtrer les chapitres par statut de lecture">
+      <div class="chapter-list__read-filter chapter-list__type-filter" role="group" aria-label="Type de publication">
+        <button
+          v-for="option in typeFilterOptions"
+          :key="option.value"
+          :class="{ 'is-active': typeFilter === option.value }"
+          :aria-pressed="typeFilter === option.value"
+          @click="typeFilter = option.value"
+        >{{ option.label }} <span>{{ option.count }}</span></button>
+      </div>
+      <div class="chapter-list__read-filter" role="group" aria-label="Filtrer les publications par statut de lecture">
         <button
           v-for="option in readFilterOptions"
           :key="option.value"
@@ -68,10 +77,16 @@
         v-for="ch in filteredChapters"
         :key="ch.id"
         class="chapter-item"
-        :class="{ 'chapter-item--read': ch.isRead }"
+        :class="{ 'chapter-item--read': ch.isRead, 'chapter-item--announcement': isAnnouncement(ch.title, ch.slug) }"
       >
         <button class="chapter-item__button" @click="openChapter(ch)">
           <span class="chapter-item__title">{{ ch.title }}</span>
+          <span
+            v-if="hasMultipleBooks && ch.volumeId"
+            class="chapter-item__book"
+            :title="`Livre ${bookLabels.get(ch.volumeId)?.slice(1) ?? ''}`"
+          >{{ bookLabels.get(ch.volumeId) }}</span>
+          <span v-if="isAnnouncement(ch.title, ch.slug)" class="chapter-item__kind">Annonce</span>
           <span class="chapter-item__date">{{ formatDate(ch.publishedAt) }}</span>
           <span v-if="ch.content" class="chapter-item__offline" title="Disponible hors ligne">📥</span>
         </button>
@@ -82,7 +97,7 @@
       Aucun chapitre trouvé. Vérifiez votre connexion et réessayez.
     </div>
     <div v-else-if="!loading && !refreshing && filteredChapters.length === 0" class="chapter-list__empty">
-      Aucun chapitre ne correspond à ces filtres.
+      {{ typeFilter === 'announcements' ? 'Aucune annonce ne correspond à ces filtres.' : 'Aucun chapitre ne correspond à ces filtres.' }}
     </div>
   </div>
 </template>
@@ -91,6 +106,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { db, type FictionRecord, type ChapterRecord } from '@/db'
+import { isAnnouncement } from '@/core/models/chapter'
 import { useLibraryStore } from '@/stores/libraryStore'
 import { useReaderStore } from '@/stores/readerStore'
 
@@ -108,6 +124,7 @@ const downloading = ref(false)
 const error = ref<string | null>(null)
 const searchQuery = ref('')
 const readFilter = ref<'all' | 'unread' | 'read'>('all')
+const typeFilter = ref<'all' | 'chapters' | 'announcements'>('chapters')
 
 const allOffline = computed(() =>
   chapters.value.length > 0 && chapters.value.every(c => !!c.content)
@@ -116,28 +133,43 @@ const allOffline = computed(() =>
 const sortKey = `chapter-sort-desc-${props.fictionDbId}`
 const sortDesc = ref(localStorage.getItem(sortKey) === 'true')
 watch(sortDesc, v => localStorage.setItem(sortKey, String(v)))
-function chapterNumber(title: string): number | null {
-  const match = title.match(/\b(?:chapter|chapitre)\s*(\d+(?:[.,]\d+)?)/i)
-    ?? title.match(/^\s*(\d+(?:[.,]\d+)?)(?:\D|$)/)
-  return match ? Number(match[1].replace(',', '.')) : null
-}
 const sortedChapters = computed(() =>
   [...chapters.value].sort((a, b) => {
-    const aNumber = chapterNumber(a.title) ?? a.order
-    const bNumber = chapterNumber(b.title) ?? b.order
-    const comparison = aNumber - bNumber
+    const comparison = a.order - b.order
     return sortDesc.value ? -comparison : comparison
   })
 )
-const unreadCount = computed(() => chapters.value.filter(c => !c.isRead).length)
+const bookLabels = computed(() => {
+  const volumeIds = [...new Set(
+    [...chapters.value]
+      .sort((a, b) => a.order - b.order)
+      .map(chapter => chapter.volumeId)
+      .filter((volumeId): volumeId is string => !!volumeId)
+  )]
+  return new Map(volumeIds.map((volumeId, index) => [volumeId, `B${index + 1}`]))
+})
+const hasMultipleBooks = computed(() => bookLabels.value.size > 1)
+const announcementCount = computed(() => chapters.value.filter(c => isAnnouncement(c.title, c.slug)).length)
+const storyChapterCount = computed(() => chapters.value.length - announcementCount.value)
+const unreadCount = computed(() => chapters.value.filter(c => !c.isRead && !isAnnouncement(c.title, c.slug)).length)
+const typeFilterOptions = computed(() => [
+  { value: 'chapters' as const, label: 'Chapitres', count: storyChapterCount.value },
+  { value: 'announcements' as const, label: 'Annonces', count: announcementCount.value },
+  { value: 'all' as const, label: 'Tout', count: chapters.value.length },
+])
+const typeFilteredChapters = computed(() => sortedChapters.value.filter(chapter => {
+  if (typeFilter.value === 'chapters') return !isAnnouncement(chapter.title, chapter.slug)
+  if (typeFilter.value === 'announcements') return isAnnouncement(chapter.title, chapter.slug)
+  return true
+}))
 const readFilterOptions = computed(() => [
-  { value: 'all' as const, label: 'Tous', count: chapters.value.length },
-  { value: 'unread' as const, label: 'Non lus', count: unreadCount.value },
-  { value: 'read' as const, label: 'Lus', count: chapters.value.length - unreadCount.value },
+  { value: 'all' as const, label: 'Tous', count: typeFilteredChapters.value.length },
+  { value: 'unread' as const, label: 'Non lus', count: typeFilteredChapters.value.filter(c => !c.isRead).length },
+  { value: 'read' as const, label: 'Lus', count: typeFilteredChapters.value.filter(c => c.isRead).length },
 ])
 const filteredChapters = computed(() => {
   const query = searchQuery.value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr')
-  return sortedChapters.value.filter(chapter => {
+  return typeFilteredChapters.value.filter(chapter => {
     const title = chapter.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr')
     const matchesReadStatus = readFilter.value === 'all'
       || (readFilter.value === 'read' ? chapter.isRead : !chapter.isRead)
@@ -186,9 +218,19 @@ async function refresh() {
   refreshing.value = true
   error.value = null
   try {
+    const existingIds = new Set(chapters.value.map(chapter => chapter.chapterId))
     const count = await library.refreshChapters(fiction.value)
     chapters.value = await library.getChapters(props.fictionDbId)
-    if (count > 0) alert(`${count} nouveau(x) chapitre(s) ajouté(s) !`)
+    if (count > 0) {
+      const newChapters = chapters.value.filter(chapter => !existingIds.has(chapter.chapterId))
+      const newAnnouncements = newChapters.filter(chapter => isAnnouncement(chapter.title, chapter.slug)).length
+      const newStoryChapters = newChapters.length - newAnnouncements
+      const messages = [
+        newStoryChapters > 0 ? `${newStoryChapters} nouveau(x) chapitre(s)` : '',
+        newAnnouncements > 0 ? `${newAnnouncements} nouvelle(s) annonce(s)` : '',
+      ].filter(Boolean)
+      alert(`${messages.join(' et ')} ajouté(e)(s) !`)
+    }
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -297,6 +339,9 @@ function formatDate(iso: string): string {
   background: var(--color-accent);
   color: #fff;
 }
+.chapter-list__type-filter button:not(.is-active) {
+  background: var(--color-surface);
+}
 .chapter-list__read-filter span {
   margin-left: 4px;
   opacity: 0.8;
@@ -397,9 +442,32 @@ function formatDate(iso: string): string {
 .chapter-item--read .chapter-item__title {
   color: var(--color-text-muted);
 }
+.chapter-item--announcement {
+  border-left: 3px solid var(--color-accent);
+}
 .chapter-item__title {
   flex: 1;
   font-size: 0.9rem;
+}
+.chapter-item__kind {
+  flex-shrink: 0;
+  padding: 3px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-accent);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.chapter-item__book {
+  flex-shrink: 0;
+  min-width: 30px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
 }
 .chapter-item__date {
   font-size: 0.75rem;

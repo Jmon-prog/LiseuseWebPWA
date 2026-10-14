@@ -53,6 +53,7 @@ function parseChapterRows(doc: Document): ChapterMeta[] {
             title: row.querySelector('td a')?.textContent?.trim() ?? '',
             url: new URL(href, BASE_URL).href,
             publishedAt: row.querySelector('time')?.getAttribute('datetime') ?? '',
+            volumeId: row.getAttribute('data-volume-id') ?? undefined,
             order: chapters.length,
         })
     })

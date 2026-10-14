@@ -19,6 +19,7 @@ export interface ChapterMeta {
     title: string
     url: string
     publishedAt: string
+    volumeId?: string
     order: number
 }
 

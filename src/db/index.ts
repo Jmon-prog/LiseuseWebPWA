@@ -28,6 +28,7 @@ export interface ChapterRecord {
     title: string
     url: string
     publishedAt: string
+    volumeId?: string
     isRead: boolean
     content?: string // HTML stocké pour lecture hors ligne
     readingPosition?: number
